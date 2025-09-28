@@ -38,7 +38,7 @@ services:
     image: quay.io/insights-onprem/redis-ephemeral:6
 
   unleash:
-    image: quay.io/ydayagi/unleashorg/unleash-server:latest
+    image: quay.io/insights-onprem/unleashorg/unleash-server:latest
     networks:
       - default
       - scripts_default
