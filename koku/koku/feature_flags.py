@@ -28,6 +28,19 @@ def fallback_development_true(feature_name: str, context: dict) -> bool:
     return context.get("environment", "").lower() == "development"
 
 
+class DisabledUnleashClient:
+    """Mock Unleash client that never makes network calls - for onprem deployments"""
+    
+    def is_enabled(self, feature_name: str, context: dict = None, fallback_function=None):
+        # Always use fallback function when disabled (no network calls)
+        if fallback_function:
+            return fallback_function(feature_name, context or {})
+        return False  # Safe default when no fallback provided
+    
+    def destroy(self):
+        pass  # No cleanup needed for mock client
+
+
 class KokuUnleashClient(UnleashClient):
     """Koku Unleash Client."""
 
@@ -52,16 +65,27 @@ class KokuUnleashClient(UnleashClient):
         self.unleash_scheduler.shutdown()
 
 
-headers = {}
-if settings.UNLEASH_TOKEN:
-    headers["Authorization"] = settings.UNLEASH_TOKEN
+# Check if Unleash should be disabled for onprem deployments
+UNLEASH_DISABLED = ENVIRONMENT.bool("UNLEASH_DISABLED", default=False)
 
-UNLEASH_CLIENT = KokuUnleashClient(
-    url=settings.UNLEASH_URL,
-    app_name="Cost Management",
-    environment=ENVIRONMENT.get_value("KOKU_SENTRY_ENVIRONMENT", default="development"),
-    instance_id=ENVIRONMENT.get_value("APP_POD_NAME", default="unleash-client-python"),
-    custom_headers=headers,
-    cache_directory=settings.UNLEASH_CACHE_DIR,
-    verbose_log_level=log_level,
-)
+# Conditional client creation for onprem vs SaaS
+if UNLEASH_DISABLED:
+    # Create mock client that makes ZERO network calls
+    UNLEASH_CLIENT = DisabledUnleashClient()
+    LOG.info("Unleash disabled for onprem deployment - using mock client with zero network calls")
+else:
+    # Normal SaaS client with existing defaults
+    headers = {}
+    if settings.UNLEASH_TOKEN:
+        headers["Authorization"] = settings.UNLEASH_TOKEN
+
+    UNLEASH_CLIENT = KokuUnleashClient(
+        url=settings.UNLEASH_URL,
+        app_name="Cost Management",
+        environment=ENVIRONMENT.get_value("KOKU_SENTRY_ENVIRONMENT", default="development"),
+        instance_id=ENVIRONMENT.get_value("APP_POD_NAME", default="unleash-client-python"),
+        custom_headers=headers,
+        cache_directory=settings.UNLEASH_CACHE_DIR,
+        verbose_log_level=log_level,
+    )
+    LOG.debug("Unleash client initialized for SaaS deployment")
