@@ -50,7 +50,7 @@ class ReportView(APIView):
     It providers one GET endpoint for the reports.
     """
 
-    @method_decorator(vary_on_headers(CACHE_RH_IDENTITY_HEADER()))  # Call function to get header name
+    @method_decorator(vary_on_headers(CACHE_RH_IDENTITY_HEADER))
     def get(self, request, **kwargs):
         """Get Report Data.
 
