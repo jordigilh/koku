@@ -31,12 +31,20 @@ def fallback_development_true(feature_name: str, context: dict) -> bool:
 class DisabledUnleashClient:
     """Mock Unleash client that never makes network calls - for onprem deployments"""
     
+    def __init__(self):
+        # Add attributes that gunicorn_conf.py and other code expects
+        self.unleash_instance_id = "disabled-unleash-client"
+    
     def is_enabled(self, feature_name: str, context: dict = None, fallback_function=None):
         # Always use fallback function when disabled (no network calls)
         if fallback_function:
             return fallback_function(feature_name, context or {})
         return False  # Safe default when no fallback provided
     
+    def initialize_client(self):
+        # No-op for disabled client (no network calls)
+        pass
+
     def destroy(self):
         pass  # No cleanup needed for mock client
 
@@ -75,17 +83,17 @@ if UNLEASH_DISABLED:
     LOG.info("Unleash disabled for onprem deployment - using mock client with zero network calls")
 else:
     # Normal SaaS client with existing defaults
-    headers = {}
-    if settings.UNLEASH_TOKEN:
-        headers["Authorization"] = settings.UNLEASH_TOKEN
+headers = {}
+if settings.UNLEASH_TOKEN:
+    headers["Authorization"] = settings.UNLEASH_TOKEN
 
-    UNLEASH_CLIENT = KokuUnleashClient(
-        url=settings.UNLEASH_URL,
-        app_name="Cost Management",
-        environment=ENVIRONMENT.get_value("KOKU_SENTRY_ENVIRONMENT", default="development"),
-        instance_id=ENVIRONMENT.get_value("APP_POD_NAME", default="unleash-client-python"),
-        custom_headers=headers,
-        cache_directory=settings.UNLEASH_CACHE_DIR,
-        verbose_log_level=log_level,
-    )
+UNLEASH_CLIENT = KokuUnleashClient(
+    url=settings.UNLEASH_URL,
+    app_name="Cost Management",
+    environment=ENVIRONMENT.get_value("KOKU_SENTRY_ENVIRONMENT", default="development"),
+    instance_id=ENVIRONMENT.get_value("APP_POD_NAME", default="unleash-client-python"),
+    custom_headers=headers,
+    cache_directory=settings.UNLEASH_CACHE_DIR,
+    verbose_log_level=log_level,
+)
     LOG.debug("Unleash client initialized for SaaS deployment")
