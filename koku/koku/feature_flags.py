@@ -30,17 +30,17 @@ def fallback_development_true(feature_name: str, context: dict) -> bool:
 
 class DisabledUnleashClient:
     """Mock Unleash client that never makes network calls - for onprem deployments"""
-    
+
     def __init__(self):
         # Add attributes that gunicorn_conf.py and other code expects
         self.unleash_instance_id = "disabled-unleash-client"
-    
+
     def is_enabled(self, feature_name: str, context: dict = None, fallback_function=None):
         # Always use fallback function when disabled (no network calls)
         if fallback_function:
             return fallback_function(feature_name, context or {})
         return False  # Safe default when no fallback provided
-    
+
     def initialize_client(self):
         # No-op for disabled client (no network calls)
         pass
