@@ -83,17 +83,17 @@ if UNLEASH_DISABLED:
     LOG.info("Unleash disabled for onprem deployment - using mock client with zero network calls")
 else:
     # Normal SaaS client with existing defaults
-headers = {}
-if settings.UNLEASH_TOKEN:
-    headers["Authorization"] = settings.UNLEASH_TOKEN
+    headers = {}
+    if settings.UNLEASH_TOKEN:
+        headers["Authorization"] = settings.UNLEASH_TOKEN
 
-UNLEASH_CLIENT = KokuUnleashClient(
-    url=settings.UNLEASH_URL,
-    app_name="Cost Management",
-    environment=ENVIRONMENT.get_value("KOKU_SENTRY_ENVIRONMENT", default="development"),
-    instance_id=ENVIRONMENT.get_value("APP_POD_NAME", default="unleash-client-python"),
-    custom_headers=headers,
-    cache_directory=settings.UNLEASH_CACHE_DIR,
-    verbose_log_level=log_level,
-)
+    UNLEASH_CLIENT = KokuUnleashClient(
+        url=settings.UNLEASH_URL,
+        app_name="Cost Management",
+        environment=ENVIRONMENT.get_value("KOKU_SENTRY_ENVIRONMENT", default="development"),
+        instance_id=ENVIRONMENT.get_value("APP_POD_NAME", default="unleash-client-python"),
+        custom_headers=headers,
+        cache_directory=settings.UNLEASH_CACHE_DIR,
+        verbose_log_level=log_level,
+    )
     LOG.debug("Unleash client initialized for SaaS deployment")
