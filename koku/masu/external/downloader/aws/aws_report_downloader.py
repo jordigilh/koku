@@ -212,10 +212,25 @@ class AWSReportDownloader(ReportDownloaderBase, DownloaderInterface):
             return
 
         LOG.debug("Connecting to AWS...")
-        self._session = utils.get_assume_role_session(
-            utils.AwsArn(credentials), "MasuDownloaderSession", **self._region_kwargs
-        )
-        self.s3_client = self._session.client("s3", **self._region_kwargs)
+        arn = utils.AwsArn(credentials)
+
+        if arn.arn:
+            # AWS deployment: Use STS role assumption for AWS accounts
+            LOG.debug("Using AWS STS role assumption")
+            self._session = utils.get_assume_role_session(arn, "MasuDownloaderSession", **self._region_kwargs)
+            self.s3_client = self._session.client("s3", **self._region_kwargs)
+        else:
+            # On-prem deployment: Use environment credentials for S3-compatible storage
+            LOG.debug("Using environment credentials for on-prem S3")
+            import boto3
+            from django.conf import settings
+
+            # Create session using environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+            self._session = boto3.Session()
+            endpoint_url = getattr(settings, "S3_ENDPOINT", None)
+
+            # Create S3 client with optional custom endpoint for on-prem S3 (ODF, MinIO, etc.)
+            self.s3_client = self._session.client("s3", endpoint_url=endpoint_url, **self._region_kwargs)
 
         self.context["region_name"] = self.region_name or "default"
         self._set_report()
