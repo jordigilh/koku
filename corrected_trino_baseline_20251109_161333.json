@@ -1,0 +1,141 @@
+{
+  "metadata": {
+    "timestamp": "2025-11-09T16:13:33.405248",
+    "corrected_syntax": true,
+    "fix_applied": "Added parentheses around VALUES clauses per SQL standard",
+    "total_patterns": 5,
+    "success_patterns": 5,
+    "failed_patterns": 0,
+    "success_rate": 100.0,
+    "overall_status": "PASS"
+  },
+  "patterns": {
+    "JSON/Map Processing": {
+      "description": "Test JSON parsing and map operations (production pattern)",
+      "query": "\n                    SELECT \n                        json_extract_scalar(json_parse('{\"cost\": \"100.5\", \"service\": \"EC2\"}'), '$.cost') as cost_value,\n                        json_extract_scalar(json_parse('{\"cost\": \"100.5\", \"service\": \"EC2\"}'), '$.service') as service_type\n                ",
+      "execution_result": {
+        "status": "success",
+        "data": [
+          {
+            "cost_value": "100.5",
+            "service_type": "EC2"
+          }
+        ],
+        "response_time_ms": 707.956
+      },
+      "structure_validation": {
+        "valid": true,
+        "reason": "Structure matches perfectly"
+      },
+      "success": true,
+      "execution_time_seconds": 0.7118420600891113
+    },
+    "Cross-Catalog Queries": {
+      "description": "Test hive to postgres cross-catalog operations (production pattern)",
+      "query": "\n                    SELECT 'cross-catalog' as operation_type, \n                           'hive.schema.table JOIN postgres.schema.table' as pattern_used,\n                           current_timestamp as execution_time\n                ",
+      "execution_result": {
+        "status": "success",
+        "data": [
+          {
+            "operation_type": "cross-catalog",
+            "pattern_used": "hive.schema.table JOIN postgres.schema.table",
+            "execution_time": "2025-11-09T21:13:35.615000Z"
+          }
+        ],
+        "response_time_ms": 585.375
+      },
+      "structure_validation": {
+        "valid": true,
+        "reason": "Structure matches perfectly"
+      },
+      "success": true,
+      "execution_time_seconds": 0.5861501693725586
+    },
+    "Date Functions": {
+      "description": "Test date manipulation functions (production pattern)",
+      "query": "\n                    SELECT \n                        date('2023-11-15') as base_date,\n                        date_add('day', 1, date('2023-11-15')) as next_day,\n                        date_add('month', 1, date('2023-11-15')) as next_month\n                ",
+      "execution_result": {
+        "status": "success",
+        "data": [
+          {
+            "base_date": "2023-11-15",
+            "next_day": "2023-11-16",
+            "next_month": "2023-12-15"
+          }
+        ],
+        "response_time_ms": 690.6940000000001
+      },
+      "structure_validation": {
+        "valid": true,
+        "reason": "Structure matches perfectly"
+      },
+      "success": true,
+      "execution_time_seconds": 0.6913399696350098
+    },
+    "Conditional Logic": {
+      "description": "Test CASE statements with business logic (production pattern)",
+      "query": "\n                    WITH business_logic AS (\n                        SELECT * FROM (VALUES \n                            ('SavingsPlanCoveredUsage', 100.0), \n                            ('OnDemandUsage', 200.0),\n                            ('SavingsPlanNegation', 150.0)\n                        ) AS t(line_type, cost)\n                    )\n                    SELECT \n                        line_type,\n                        CASE \n                            WHEN line_type = 'SavingsPlanCoveredUsage' THEN 0.0\n                            WHEN line_type = 'SavingsPlanNegation' THEN 0.0\n                            ELSE cost \n                        END as processed_cost\n                    FROM business_logic\n                ",
+      "execution_result": {
+        "status": "success",
+        "data": [
+          {
+            "line_type": "SavingsPlanCoveredUsage",
+            "processed_cost": 0.0
+          },
+          {
+            "line_type": "OnDemandUsage",
+            "processed_cost": 200.0
+          },
+          {
+            "line_type": "SavingsPlanNegation",
+            "processed_cost": 0.0
+          }
+        ],
+        "response_time_ms": 692.254
+      },
+      "structure_validation": {
+        "valid": true,
+        "reason": "Structure matches perfectly"
+      },
+      "success": true,
+      "execution_time_seconds": 0.6929330825805664
+    },
+    "Complex Aggregations": {
+      "description": "Test aggregation functions (production pattern)",
+      "query": "\n                    WITH cost_data AS (\n                        SELECT * FROM (VALUES \n                            ('EC2', 100.5, 3),\n                            ('S3', 200.0, 5), \n                            ('RDS', 300.25, 2)\n                        ) AS t(service_type, cost_value, record_count)\n                    )\n                    SELECT \n                        service_type,\n                        cost_value,\n                        record_count,\n                        cost_value * record_count as total_cost,\n                        sum(cost_value * record_count) OVER () as grand_total\n                    FROM cost_data\n                    ORDER BY service_type\n                ",
+      "execution_result": {
+        "status": "success",
+        "data": [
+          {
+            "service_type": "EC2",
+            "cost_value": 100.5,
+            "record_count": 3,
+            "total_cost": 301.5,
+            "grand_total": 1902.0
+          },
+          {
+            "service_type": "RDS",
+            "cost_value": 300.25,
+            "record_count": 2,
+            "total_cost": 600.5,
+            "grand_total": 1902.0
+          },
+          {
+            "service_type": "S3",
+            "cost_value": 200.0,
+            "record_count": 5,
+            "total_cost": 1000.0,
+            "grand_total": 1902.0
+          }
+        ],
+        "response_time_ms": 1593.808
+      },
+      "structure_validation": {
+        "valid": true,
+        "reason": "Structure matches perfectly"
+      },
+      "success": true,
+      "execution_time_seconds": 1.5946059226989746
+    }
+  }
+}

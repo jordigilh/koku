@@ -1,0 +1,57 @@
+# Commands to Run on Fedora 42 AMD64 Machine
+# ============================================
+# Copy and paste these commands to build and push the Koku image
+
+# Step 1: Download the build script
+curl -o ~/build-and-push-fedora.sh https://raw.githubusercontent.com/jordigilh/koku/trino-replacement-analysis/build-and-push-fedora.sh
+chmod +x ~/build-and-push-fedora.sh
+
+# Step 2: Run the build script
+~/build-and-push-fedora.sh
+
+# The script will:
+# 1. Clone the repository
+# 2. Checkout the trino-replacement-analysis branch
+# 3. Verify the bug fix is present
+# 4. Build the Docker image (takes 10-15 minutes)
+# 5. Prompt for Quay.io login credentials
+# 6. Push the images to quay.io/jordigilh/koku
+# 7. Clean up
+
+# ============================================
+# Manual Steps (if you prefer not to use the script)
+# ============================================
+
+# 1. Clone the repository
+git clone https://github.com/jordigilh/koku.git ~/koku-build
+cd ~/koku-build
+
+# 2. Checkout the branch with the fix
+git checkout trino-replacement-analysis
+
+# 3. Verify the fix is in place
+grep -n "CACHE_RH_IDENTITY_HEADER()" koku/api/report/view.py
+# Should show line 53 with the function call
+
+# 4. Build the image
+docker build --platform linux/amd64 \
+    -t quay.io/jordigilh/koku:fixed-cache-header \
+    -t quay.io/jordigilh/koku:latest \
+    -f Dockerfile .
+
+# 5. Login to Quay.io
+docker login quay.io
+
+# 6. Push the images
+docker push quay.io/jordigilh/koku:fixed-cache-header
+docker push quay.io/jordigilh/koku:latest
+
+# 7. Cleanup
+cd ~
+rm -rf ~/koku-build
+
+# ============================================
+# After Build Completes
+# ============================================
+# Return to your Mac and run the deployment steps from DEPLOY_FIXED_IMAGE.md
+

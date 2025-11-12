@@ -150,3 +150,4 @@ dev/containers/unleash/cache/
 # performance profiling
 /koku.iml
 /view.prof
+docs/migration/tests/

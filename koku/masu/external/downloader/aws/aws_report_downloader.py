@@ -318,8 +318,9 @@ class AWSReportDownloader(ReportDownloaderBase, DownloaderInterface):
     def _set_report(self):
         # Checking for storage only source
         if self.storage_only:
-            LOG.info("Skipping ingest as source is storage_only and requires ingress reports")
-            self.report = ""
+            # On-prem storage_only: Skip AWS CUR API calls but allow S3 polling
+            LOG.info("Storage_only mode: Skipping AWS CUR API, will poll S3 directly")
+            self.report = {}  # Empty dict instead of empty string to avoid downstream issues
             return
 
         # fetch details about the report from the cloud provider

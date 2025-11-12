@@ -1,0 +1,121 @@
+{
+  "start_time": "2025-11-10T02:05:41.363900",
+  "test_categories": {
+    "mathematical_precision": {
+      "start_time": "2025-11-10T02:05:41.364589",
+      "tests": {
+        "test_floating_point_precision": {
+          "status": "PASSED",
+          "duration": 1.5735626220703125e-05,
+          "timestamp": "2025-11-10T02:05:41.364624"
+        },
+        "test_large_number_handling": {
+          "status": "PASSED",
+          "duration": 9.5367431640625e-07,
+          "timestamp": "2025-11-10T02:05:41.364648"
+        },
+        "test_currency_conversion_precision": {
+          "status": "PASSED",
+          "duration": 7.152557373046875e-07,
+          "timestamp": "2025-11-10T02:05:41.364668"
+        },
+        "test_percentage_calculation_accuracy": {
+          "status": "PASSED",
+          "duration": 0.0,
+          "timestamp": "2025-11-10T02:05:41.364686"
+        },
+        "test_decimal_precision_operations": {
+          "status": "FAILED",
+          "duration": 0.0001971721649169922,
+          "timestamp": "2025-11-10T02:05:41.364902"
+        }
+      },
+      "summary": {
+        "total": 5,
+        "passed": 4,
+        "failed": 1
+      },
+      "end_time": "2025-11-10T02:05:41.364947"
+    },
+    "business_logic": {
+      "start_time": "2025-11-10T02:05:41.364980",
+      "tests": {
+        "test_savings_plan_calculation": {
+          "status": "PASSED",
+          "duration": 9.5367431640625e-07,
+          "timestamp": "2025-11-10T02:05:41.364993"
+        },
+        "test_tag_correlation_logic": {
+          "status": "PASSED",
+          "duration": 4.0531158447265625e-06,
+          "timestamp": "2025-11-10T02:05:41.365016"
+        },
+        "test_cross_provider_reporting": {
+          "status": "PASSED",
+          "duration": 1.9073486328125e-06,
+          "timestamp": "2025-11-10T02:05:41.365038"
+        }
+      },
+      "summary": {
+        "total": 3,
+        "passed": 3,
+        "failed": 0
+      },
+      "end_time": "2025-11-10T02:05:41.365047"
+    },
+    "data_transformation": {
+      "start_time": "2025-11-10T02:05:41.365067",
+      "tests": {
+        "test_json_processing_simulation": {
+          "status": "PASSED",
+          "duration": 1.4066696166992188e-05,
+          "timestamp": "2025-11-10T02:05:41.365091"
+        },
+        "test_map_operations_simulation": {
+          "status": "PASSED",
+          "duration": 1.9073486328125e-06,
+          "timestamp": "2025-11-10T02:05:41.365110"
+        },
+        "test_array_operations_simulation": {
+          "status": "PASSED",
+          "duration": 3.0994415283203125e-06,
+          "timestamp": "2025-11-10T02:05:41.365129"
+        }
+      },
+      "summary": {
+        "total": 3,
+        "passed": 3,
+        "failed": 0
+      },
+      "end_time": "2025-11-10T02:05:41.365138"
+    },
+    "iqe_validation_patterns": {
+      "start_time": "2025-11-10T02:05:41.365155",
+      "tests": {
+        "test_iqe_calculate_total_pattern": {
+          "status": "PASSED",
+          "duration": 4.0531158447265625e-06,
+          "timestamp": "2025-11-10T02:05:41.365168"
+        },
+        "test_iqe_tolerance_validation_pattern": {
+          "status": "PASSED",
+          "duration": 5.245208740234375e-06,
+          "timestamp": "2025-11-10T02:05:41.365189"
+        }
+      },
+      "summary": {
+        "total": 2,
+        "passed": 2,
+        "failed": 0
+      },
+      "end_time": "2025-11-10T02:05:41.365198"
+    }
+  },
+  "summary": {
+    "total_tests": 13,
+    "passed_tests": 12,
+    "failed_tests": 1,
+    "success_rate": 92.3076923076923
+  },
+  "end_time": "2025-11-10T02:05:41.365215"
+}
