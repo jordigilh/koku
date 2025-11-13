@@ -208,11 +208,15 @@ class AWSReportDownloader(ReportDownloaderBase, DownloaderInterface):
         self._provider_uuid = kwargs.get("provider_uuid")
         self._region_kwargs = {"region_name": self.region_name} if self.region_name else {}
 
+        # Centralized on-prem detection: no role_arn means non-AWS S3 (ODF/Ceph/MinIO)
+        self._arn = utils.AwsArn(credentials)
+        self._is_onprem = not self._arn.arn
+        
         if self._demo_check():
             return
 
         LOG.debug("Connecting to AWS...")
-        arn = utils.AwsArn(credentials)
+        arn = self._arn
 
         if arn.arn:
             # AWS deployment: Use STS role assumption for AWS accounts
@@ -290,6 +294,11 @@ class AWSReportDownloader(ReportDownloaderBase, DownloaderInterface):
         return size_ok
 
     def _demo_check(self) -> bool:
+        """
+        Check if this is a demo account and configure accordingly.
+        
+        Handles both AWS and on-prem demo accounts.
+        """
         # Existing schema will start with acct and we strip that prefix new customers
         # include the org prefix in case an org-id and an account number might overlap
         if self.customer_name.startswith("acct"):
@@ -306,25 +315,55 @@ class AWSReportDownloader(ReportDownloaderBase, DownloaderInterface):
                     "S3Prefix": demo_info.get("report_prefix"),
                     "Compression": "GZIP",
                 }
-                session = utils.get_assume_role_session(
-                    utils.AwsArn(self.credentials), "MasuDownloaderSession", **self._region_kwargs
-                )
-                self.s3_client = session.client("s3", **self._region_kwargs)
+                
+                # Only use AWS STS for AWS deployments, not on-prem
+                if not self._is_onprem:
+                    session = utils.get_assume_role_session(
+                        self._arn, "MasuDownloaderSession", **self._region_kwargs
+                    )
+                    self.s3_client = session.client("s3", **self._region_kwargs)
+                # For on-prem demo accounts, S3 client is already configured in __init__
 
                 return True
 
         return False
 
     def _set_report(self):
-        # Checking for storage only source
-        if self.storage_only:
-            # On-prem storage_only: Skip AWS CUR API calls but allow S3 polling
-            LOG.info("Storage_only mode: Skipping AWS CUR API, will poll S3 directly")
-            self.report = {}  # Empty dict instead of empty string to avoid downstream issues
+        """
+        Set report metadata for AWS CUR processing.
+        
+        Behavior:
+        - AWS S3 (has role_arn): Fetch report definitions from AWS CUR API
+        - On-prem S3 (no role_arn): Skip AWS API calls, use S3 manifest directly
+        - storage_only mode: Skip AWS API calls, expect ingress API or S3 manifest
+        
+        This allows seamless operation with both AWS S3 and S3-compatible storage.
+        """
+        # On-prem S3 or storage_only mode: Skip AWS CUR API
+        if self._is_onprem or self.storage_only:
+            if self._is_onprem:
+                LOG.info("On-prem S3 detected (no role_arn): Skipping AWS CUR API, will use S3 manifest directly")
+            else:
+                LOG.info("Storage_only mode: Skipping AWS CUR API")
+            
+            # Set minimal report structure for S3 scanning
+            # The manifest will provide the actual report details
+            self.report = {
+                "S3Bucket": self.bucket,
+                "S3Prefix": "",  # Will be determined from manifest path
+                "ReportName": self.report_name or "cost-report",  # Default name
+                "Compression": "GZIP"  # Default compression
+            }
             return
 
-        # fetch details about the report from the cloud provider
-        defs = utils.get_cur_report_definitions(self._session.client("cur", region_name="us-east-1"))
+        # AWS deployment: Fetch report definitions from AWS CUR API
+        try:
+            LOG.info("AWS deployment detected: Fetching report definitions from AWS CUR API")
+            defs = utils.get_cur_report_definitions(self._session.client("cur", region_name="us-east-1"))
+        except Exception as e:
+            LOG.error(f"Failed to fetch AWS CUR report definitions: {e}")
+            raise MasuProviderError(f"Unable to access AWS CUR API: {e}")
+        
         if not self.report_name:
             report_names = []
             for report in defs.get("ReportDefinitions", []):
@@ -504,9 +543,12 @@ class AWSReportDownloader(ReportDownloaderBase, DownloaderInterface):
                     for key in manifest_dict.get("file_names")
                 ]
         else:
-            # Skip download for storage only source
-            if self.storage_only:
+            # Skip S3 scanning only if storage_only AND not on-prem
+            # On-prem S3 sources should always scan S3 for manifests
+            if self.storage_only and not self._is_onprem:
+                LOG.info("Storage_only mode (non-onprem): Skipping S3 manifest download, expecting ingress API")
                 return report_dict
+            
             manifest_file, manifest, manifest_timestamp = self._get_manifest(date)
             if manifest == self.empty_manifest:
                 return report_dict
