@@ -65,22 +65,30 @@ def get_processing_date(
         context (Dict): Logging context dictionary
         tracing_id (str): The tracing id
     """
-    invoice_bill = "bill/InvoiceId"
+    # Use identity/TimeInterval to detect CSV format (always present, unlike bill/InvoiceId)
     time_interval = "identity/TimeInterval"
     try:
-        data_frame = pd.read_csv(local_file, usecols=[invoice_bill], nrows=1)
+        data_frame = pd.read_csv(local_file, usecols=[time_interval], nrows=1)
+        invoice_bill = "bill/InvoiceId"
         optional_cols = ["resourcetags", "costcategory"]
         base_cols = copy.deepcopy(utils.RECOMMENDED_COLUMNS) | copy.deepcopy(utils.OPTIONAL_COLS)
     except ValueError:
-        invoice_bill = "bill_invoice_id"
         time_interval = "identity_time_interval"
+        invoice_bill = "bill_invoice_id"
         optional_cols = ["resource_tags", "cost_category"]
         base_cols = copy.deepcopy(utils.RECOMMENDED_ALT_COLUMNS) | copy.deepcopy(utils.OPTIONAL_ALT_COLS)
-        data_frame = pd.read_csv(local_file, usecols=[invoice_bill], nrows=1)
+        data_frame = pd.read_csv(local_file, usecols=[time_interval], nrows=1)
     use_cols = com_utils.fetch_optional_columns(local_file, base_cols, optional_cols, tracing_id, context)
     # ingress custom filter flow should always reprocess everything
+    # Check if invoice_bill exists in CSV before checking its value
+    try:
+        has_invoice = pd.read_csv(local_file, usecols=[invoice_bill], nrows=1)[invoice_bill].any()
+    except (ValueError, KeyError):
+        # invoice_bill column doesn't exist, assume no invoice ID
+        has_invoice = False
+    
     if (
-        data_frame[invoice_bill].any() and start_date.month != DateHelper().now_utc.month or ingress_reports
+        has_invoice and start_date.month != DateHelper().now_utc.month or ingress_reports
     ) or not check_provider_setup_complete(provider_uuid):
         process_date = ReportManifestDBAccessor().set_manifest_daily_start_date(manifest_id, start_date)
     else:
@@ -211,7 +219,7 @@ class AWSReportDownloader(ReportDownloaderBase, DownloaderInterface):
         # Centralized on-prem detection: no role_arn means non-AWS S3 (ODF/Ceph/MinIO)
         self._arn = utils.AwsArn(credentials)
         self._is_onprem = not self._arn.arn
-        
+
         if self._demo_check():
             return
 
@@ -227,14 +235,27 @@ class AWSReportDownloader(ReportDownloaderBase, DownloaderInterface):
             # On-prem deployment: Use environment credentials for S3-compatible storage
             LOG.debug("Using environment credentials for on-prem S3")
             import boto3
+            from botocore.config import Config
             from django.conf import settings
 
             # Create session using environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
             self._session = boto3.Session()
             endpoint_url = getattr(settings, "S3_ENDPOINT", None)
 
+            # For on-prem S3 with self-signed certificates, allow disabling SSL verification
+            verify_ssl = getattr(settings, "S3_VERIFY_SSL", True)
+            if not verify_ssl:
+                LOG.warning("SSL verification disabled for S3 connections (self-signed certificate)")
+
             # Create S3 client with optional custom endpoint for on-prem S3 (ODF, MinIO, etc.)
-            self.s3_client = self._session.client("s3", endpoint_url=endpoint_url, **self._region_kwargs)
+            client_config = Config(connect_timeout=settings.S3_TIMEOUT)
+            self.s3_client = self._session.client(
+                "s3",
+                endpoint_url=endpoint_url,
+                verify=verify_ssl,
+                config=client_config,
+                **self._region_kwargs
+            )
 
         self.context["region_name"] = self.region_name or "default"
         self._set_report()
@@ -296,7 +317,7 @@ class AWSReportDownloader(ReportDownloaderBase, DownloaderInterface):
     def _demo_check(self) -> bool:
         """
         Check if this is a demo account and configure accordingly.
-        
+
         Handles both AWS and on-prem demo accounts.
         """
         # Existing schema will start with acct and we strip that prefix new customers
@@ -315,7 +336,7 @@ class AWSReportDownloader(ReportDownloaderBase, DownloaderInterface):
                     "S3Prefix": demo_info.get("report_prefix"),
                     "Compression": "GZIP",
                 }
-                
+
                 # Only use AWS STS for AWS deployments, not on-prem
                 if not self._is_onprem:
                     session = utils.get_assume_role_session(
@@ -331,12 +352,12 @@ class AWSReportDownloader(ReportDownloaderBase, DownloaderInterface):
     def _set_report(self):
         """
         Set report metadata for AWS CUR processing.
-        
+
         Behavior:
         - AWS S3 (has role_arn): Fetch report definitions from AWS CUR API
         - On-prem S3 (no role_arn): Skip AWS API calls, use S3 manifest directly
         - storage_only mode: Skip AWS API calls, expect ingress API or S3 manifest
-        
+
         This allows seamless operation with both AWS S3 and S3-compatible storage.
         """
         # On-prem S3 or storage_only mode: Skip AWS CUR API
@@ -345,15 +366,21 @@ class AWSReportDownloader(ReportDownloaderBase, DownloaderInterface):
                 LOG.info("On-prem S3 detected (no role_arn): Skipping AWS CUR API, will use S3 manifest directly")
             else:
                 LOG.info("Storage_only mode: Skipping AWS CUR API")
-            
+
             # Set minimal report structure for S3 scanning
             # The manifest will provide the actual report details
+            # Use data_source values for report_name and report_prefix
+            report_name_from_source = self.data_source.get("report_name") or self.report_name or "cost-report"
+            report_prefix_from_source = self.data_source.get("report_prefix", "")
+
             self.report = {
                 "S3Bucket": self.bucket,
-                "S3Prefix": "",  # Will be determined from manifest path
-                "ReportName": self.report_name or "cost-report",  # Default name
+                "S3Prefix": report_prefix_from_source,
+                "ReportName": report_name_from_source,
                 "Compression": "GZIP"  # Default compression
             }
+            # Update report_name to match what's in self.report for consistency
+            self.report_name = report_name_from_source
             return
 
         # AWS deployment: Fetch report definitions from AWS CUR API
@@ -363,7 +390,7 @@ class AWSReportDownloader(ReportDownloaderBase, DownloaderInterface):
         except Exception as e:
             LOG.error(f"Failed to fetch AWS CUR report definitions: {e}")
             raise MasuProviderError(f"Unable to access AWS CUR API: {e}")
-        
+
         if not self.report_name:
             report_names = []
             for report in defs.get("ReportDefinitions", []):
@@ -548,7 +575,7 @@ class AWSReportDownloader(ReportDownloaderBase, DownloaderInterface):
             if self.storage_only and not self._is_onprem:
                 LOG.info("Storage_only mode (non-onprem): Skipping S3 manifest download, expecting ingress API")
                 return report_dict
-            
+
             manifest_file, manifest, manifest_timestamp = self._get_manifest(date)
             if manifest == self.empty_manifest:
                 return report_dict
