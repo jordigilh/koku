@@ -577,7 +577,9 @@ REQUESTED_BUCKET = ENVIRONMENT.get_value("REQUESTED_BUCKET", default="koku-repor
 REQUESTED_ROS_BUCKET = ENVIRONMENT.get_value("REQUESTED_ROS_BUCKET", default="ros-report")
 REQUESTED_SUBS_BUCKET = ENVIRONMENT.get_value("REQUESTED_SUBS_BUCKET", default="subs-report")
 S3_TIMEOUT = ENVIRONMENT.int("S3_CONNECTION_TIMEOUT", default=60)
+S3_VERIFY_SSL = ENVIRONMENT.bool("S3_VERIFY_SSL", default=True)
 S3_ENDPOINT = CONFIGURATOR.get_object_store_endpoint()
+AWS_CA_BUNDLE = ENVIRONMENT.get_value("AWS_CA_BUNDLE", default=None)
 S3_REGION = ENVIRONMENT.get_value("S3_REGION", default="us-east-1")
 S3_BUCKET_NAME = CONFIGURATOR.get_object_store_bucket(REQUESTED_BUCKET)
 S3_ACCESS_KEY = CONFIGURATOR.get_object_store_access_key(REQUESTED_BUCKET)
@@ -687,3 +689,4 @@ VALIDATION_RANGE = ENVIRONMENT.int("VALIDATION_RANGE", default=5)
 
 pd.options.mode.copy_on_write = True
 pd.options.mode.chained_assignment = "raise"
+

@@ -242,17 +242,32 @@ class AWSReportDownloader(ReportDownloaderBase, DownloaderInterface):
             self._session = boto3.Session()
             endpoint_url = getattr(settings, "S3_ENDPOINT", None)
 
-            # For on-prem S3 with self-signed certificates, allow disabling SSL verification
+            # For on-prem S3 with self-signed certificates, handle SSL verification
+            # boto3's verify parameter accepts:
+            # - True: verify using default CA bundle
+            # - False: don't verify SSL (insecure)
+            # - "/path/to/ca-bundle.crt": verify using custom CA bundle (for self-signed certs)
             verify_ssl = getattr(settings, "S3_VERIFY_SSL", True)
-            if not verify_ssl:
+            aws_ca_bundle = getattr(settings, "AWS_CA_BUNDLE", None)
+            
+            if aws_ca_bundle:
+                # Use custom CA bundle for self-signed certificates (OpenShift Service CA)
+                verify_param = aws_ca_bundle
+                LOG.info(f"Using custom CA bundle for S3 SSL verification: {aws_ca_bundle}")
+            elif not verify_ssl:
+                # Disable SSL verification (not recommended for production)
+                verify_param = False
                 LOG.warning("SSL verification disabled for S3 connections (self-signed certificate)")
+            else:
+                # Use default CA bundle
+                verify_param = True
 
             # Create S3 client with optional custom endpoint for on-prem S3 (ODF, MinIO, etc.)
             client_config = Config(connect_timeout=settings.S3_TIMEOUT)
             self.s3_client = self._session.client(
                 "s3",
                 endpoint_url=endpoint_url,
-                verify=verify_ssl,
+                verify=verify_param,
                 config=client_config,
                 **self._region_kwargs
             )
