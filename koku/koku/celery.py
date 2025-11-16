@@ -250,12 +250,14 @@ if "scheduler" in hostname:
 @celeryd_after_setup.connect
 def wait_for_migrations(sender, instance, **kwargs):  # pragma: no cover
     """Wait for migrations to complete before completing worker startup."""
-    from celery.apps.beat import Beat
+    import sys
     
     # Skip migration check for Beat - it only schedules tasks, doesn't execute them
     # Beat doesn't need database access during initialization
-    if isinstance(instance, Beat):
-        LOG.info("Beat process detected, skipping migration check")
+    # Check if this is Beat by looking at command line args
+    is_beat = any('beat' in arg for arg in sys.argv)
+    if is_beat:
+        LOG.info(f"Beat process detected (sys.argv: {sys.argv}), skipping migration check")
         return
     
     from masu.celery.tasks import collect_queue_metrics
