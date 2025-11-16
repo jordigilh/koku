@@ -665,6 +665,10 @@ CELERY_WORKER_CONCURRENCY = 1
 CELERY_REDIS_BACKEND_HEALTH_CHECK_INTERVAL = REDIS_HEALTH_CHECK_INTERVAL
 CELERY_REDIS_RETRY_ON_TIMEOUT = REDIS_RETRY_ON_TIMEOUT
 
+# Initialize beat_schedule for dynamic schedule registration
+# This is required for on-prem deployments where schedules are configured via environment variables
+CELERY_BEAT_SCHEDULE = {}
+
 # HCS debugging
 ENABLE_HCS_DEBUG = ENVIRONMENT.bool("ENABLE_HCS_DEBUG", default=False)
 
