@@ -227,5 +227,3 @@ If you encounter any other inconsistencies or issues with the implementation pla
 
 The implementation plan is now fully compatible with on-prem deployments and does not rely on Red Hat internal tools or inaccessible images.
 
-
-

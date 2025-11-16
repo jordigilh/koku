@@ -639,5 +639,3 @@ Would you like me to:
 4. **Create Docker Compose dev environment** now?
 
 Or should I proceed with all of the above?
-
-

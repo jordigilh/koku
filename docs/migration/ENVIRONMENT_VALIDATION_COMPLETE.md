@@ -346,5 +346,3 @@ The 5% gap accounts for:
 **Document Version**: 1.0
 **Last Updated**: November 11, 2025, 6:50 PM EST
 
-
-
