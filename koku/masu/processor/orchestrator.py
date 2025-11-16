@@ -37,6 +37,7 @@ from masu.processor.tasks import remove_expired_data
 from masu.processor.tasks import remove_expired_trino_partitions
 from masu.processor.tasks import summarize_reports
 from masu.processor.worker_cache import WorkerCache
+from masu.util.aws.common import AwsArn
 from masu.util.aws.common import update_account_aliases
 from subs.tasks import extract_subs_data_from_reports
 from subs.tasks import SUBS_EXTRACTION_QUEUE
@@ -466,7 +467,7 @@ class Orchestrator:
 
                     # Skip account alias update for on-prem S3 (no role_arn)
                     credentials = provider.account.get("credentials", {})
-                    _arn = utils.AwsArn(credentials)
+                    _arn = AwsArn(credentials)
                     if not _arn.arn:
                         LOG.info(
                             log_json(
