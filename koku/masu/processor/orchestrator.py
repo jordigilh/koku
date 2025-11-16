@@ -463,6 +463,21 @@ class Orchestrator:
                 if reports_tasks_queued and not accounts_labeled:
                     if provider.type not in (Provider.PROVIDER_AWS, Provider.PROVIDER_AWS_LOCAL):
                         continue
+
+                    # Skip account alias update for on-prem S3 (no role_arn)
+                    credentials = provider.account.get("credentials", {})
+                    _arn = utils.AwsArn(credentials)
+                    if not _arn.arn:
+                        LOG.info(
+                            log_json(
+                                tracing_id,
+                                msg="skipping account aliases (on-prem S3 detected - no ARN)",
+                                schema=schema,
+                                provider_uuid=provider.uuid,
+                            )
+                        )
+                        continue
+
                     LOG.info(
                         log_json(
                             tracing_id,
