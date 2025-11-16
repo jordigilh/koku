@@ -99,6 +99,12 @@ def validate_cron_expression(expression, default="0 * * * *"):
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "koku.settings")
 
+# Initialize Django apps before creating Celery app
+# This is required for Beat which doesn't trigger celeryd_after_setup signal
+# Without this, Beat hangs when it tries to access Django ORM/database
+import django
+django.setup()
+
 print("starting celery")
 # 'app' is the recommended convention from celery docs
 # following this for ease of comparison to reference implementation
@@ -249,17 +255,11 @@ if "scheduler" in hostname:
 
 @celeryd_after_setup.connect
 def wait_for_migrations(sender, instance, **kwargs):  # pragma: no cover
-    """Wait for migrations to complete before completing worker startup."""
-    import sys
+    """Wait for migrations to complete before completing worker startup.
     
-    # Skip migration check for Beat - it only schedules tasks, doesn't execute them
-    # Beat doesn't need database access during initialization
-    # Check if this is Beat by looking at command line args
-    is_beat = any('beat' in arg for arg in sys.argv)
-    if is_beat:
-        print(f"🎵 Beat process detected (sys.argv: {sys.argv}), skipping migration check")
-        return
-    
+    Note: This signal only fires for celery workers, not for Beat.
+    Beat uses a different startup path and doesn't trigger celeryd_after_setup.
+    """
     from masu.celery.tasks import collect_queue_metrics
 
     from .database import check_migrations
