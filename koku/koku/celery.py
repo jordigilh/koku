@@ -100,19 +100,6 @@ def validate_cron_expression(expression, default="0 * * * *"):
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "koku.settings")
 
-# Initialize Django apps before creating Celery app, but ONLY for Celery processes
-# This is required for Beat which doesn't trigger celeryd_after_setup signal
-# Without this, Beat hangs when it tries to access Django ORM/database
-# Skip for manage.py commands to avoid double-initialization
-_is_manage_py = 'manage.py' in sys.argv[0] if sys.argv else False
-if not _is_manage_py:
-    import django
-    try:
-        django.setup(set_prefix=False)
-    except RuntimeError:
-        # Django already configured, ignore
-        pass
-
 print("starting celery")
 # 'app' is the recommended convention from celery docs
 # following this for ease of comparison to reference implementation
@@ -120,6 +107,20 @@ app = LoggingCelery(
     "koku", log="koku.log:TaskRootLogging", backend=settings.CELERY_RESULTS_URL, broker=settings.CELERY_BROKER_URL
 )
 app.config_from_object("django.conf:settings", namespace="CELERY")
+
+# Initialize Django apps AFTER creating Celery app to avoid circular imports
+# This is required for Beat which doesn't trigger celeryd_after_setup signal
+# Without this, Beat hangs when it tries to access Django ORM/database
+# Skip for manage.py commands to avoid double-initialization
+_is_manage_py = 'manage.py' in sys.argv[0] if sys.argv else False
+if not _is_manage_py:
+    import django
+    if not django.apps.apps.ready:
+        try:
+            django.setup(set_prefix=False)
+        except RuntimeError:
+            # Django already configured, ignore
+            pass
 
 print("celery autodiscover tasks")
 
