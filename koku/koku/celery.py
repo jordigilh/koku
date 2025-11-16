@@ -1,6 +1,7 @@
 """Celery configuration for the Koku project."""
 import logging
 import os
+import sys
 import time
 from datetime import datetime
 from datetime import timedelta
@@ -99,16 +100,18 @@ def validate_cron_expression(expression, default="0 * * * *"):
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "koku.settings")
 
-# Initialize Django apps before creating Celery app
+# Initialize Django apps before creating Celery app, but ONLY for Celery processes
 # This is required for Beat which doesn't trigger celeryd_after_setup signal
 # Without this, Beat hangs when it tries to access Django ORM/database
-# Use set_prefix=False to allow setup to be called multiple times safely
-import django
-try:
-    django.setup(set_prefix=False)
-except RuntimeError:
-    # Django already configured, ignore
-    pass
+# Skip for manage.py commands to avoid double-initialization
+_is_manage_py = 'manage.py' in sys.argv[0] if sys.argv else False
+if not _is_manage_py:
+    import django
+    try:
+        django.setup(set_prefix=False)
+    except RuntimeError:
+        # Django already configured, ignore
+        pass
 
 print("starting celery")
 # 'app' is the recommended convention from celery docs
