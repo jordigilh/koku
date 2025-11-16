@@ -117,6 +117,10 @@ app.conf.worker_max_tasks_per_child = MAX_CELERY_TASKS_PER_WORKER
 WORKER_PROC_ALIVE_TIMEOUT = ENVIRONMENT.int("WORKER_PROC_ALIVE_TIMEOUT", default=4)
 app.conf.worker_proc_alive_timeout = WORKER_PROC_ALIVE_TIMEOUT
 
+# Initialize beat_schedule if not already set (required for on-prem deployments)
+if not hasattr(app.conf, 'beat_schedule') or app.conf.beat_schedule is None:
+    app.conf.beat_schedule = {}
+
 # Toggle to enable/disable scheduled checks for new reports.
 if ENVIRONMENT.bool("SCHEDULE_REPORT_CHECKS", default=False):
     download_fallback = validate_cron_expression("0 * * * *")
