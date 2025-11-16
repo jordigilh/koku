@@ -108,20 +108,6 @@ app = LoggingCelery(
 )
 app.config_from_object("django.conf:settings", namespace="CELERY")
 
-# Initialize Django apps AFTER creating Celery app to avoid circular imports
-# This is required for Beat which doesn't trigger celeryd_after_setup signal
-# Without this, Beat hangs when it tries to access Django ORM/database
-# Skip for manage.py commands to avoid double-initialization
-_is_manage_py = 'manage.py' in sys.argv[0] if sys.argv else False
-if not _is_manage_py:
-    import django
-    if not django.apps.apps.ready:
-        try:
-            django.setup(set_prefix=False)
-        except RuntimeError:
-            # Django already configured, ignore
-            pass
-
 print("celery autodiscover tasks")
 
 # Specify the number of celery tasks to run before recycling the celery worker.
@@ -260,6 +246,19 @@ if "koku-clowder-worker" in hostname:
 # Print the beat schedules only in the scheduler
 if "scheduler" in hostname:
     pprint(app.conf.beat_schedule)
+
+# Initialize Django for Beat if requested via environment variable
+# This must be done after the module is fully loaded to avoid circular imports
+# Workers initialize Django via the celeryd_after_setup signal (check_migrations)
+if ENVIRONMENT.bool("CELERY_BEAT_INIT_DJANGO", default=False):
+    import django
+    if not django.apps.apps.ready:
+        LOG.info("Initializing Django for Beat...")
+        try:
+            django.setup(set_prefix=False)
+            LOG.info("Django initialized successfully")
+        except Exception as e:
+            LOG.error(f"Failed to initialize Django: {e}")
 
 
 @celeryd_after_setup.connect
