@@ -102,10 +102,13 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "koku.settings")
 # Initialize Django apps before creating Celery app
 # This is required for Beat which doesn't trigger celeryd_after_setup signal
 # Without this, Beat hangs when it tries to access Django ORM/database
-# Only call setup if apps aren't already populated (e.g., by manage.py)
+# Use set_prefix=False to allow setup to be called multiple times safely
 import django
-if not django.apps.apps.ready:
-    django.setup()
+try:
+    django.setup(set_prefix=False)
+except RuntimeError:
+    # Django already configured, ignore
+    pass
 
 print("starting celery")
 # 'app' is the recommended convention from celery docs
