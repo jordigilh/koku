@@ -251,7 +251,7 @@ if "scheduler" in hostname:
 @celeryd_after_setup.connect
 def wait_for_migrations(sender, instance, **kwargs):  # pragma: no cover
     """Wait for migrations to complete before completing worker startup.
-    
+
     Note: This signal only fires for celery workers, not for Beat.
     Beat uses a different startup path and doesn't trigger celeryd_after_setup.
     """
