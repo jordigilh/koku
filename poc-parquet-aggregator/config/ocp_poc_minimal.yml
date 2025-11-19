@@ -1,0 +1,105 @@
+---
+# Minimal OCP Static Data for POC Validation
+# This configuration creates predictable, calculable test data
+generators:
+  - OCPGenerator:
+      start_date: 2025-11-01
+      end_date: 2025-11-03  # 3 days for quick testing
+      nodes:
+        # Node 1: Compute node with 2 namespaces
+        - node:
+          node_name: poc_node_compute_1
+          node_labels: label_nodeclass:compute|label_environment:poc
+          cpu_cores: 4
+          memory_gig: 16
+          resource_id: 100001
+          namespaces:
+            # Namespace 1: test-app (2 pods)
+            test-app:
+              pods:
+                - pod:
+                  pod_name: test_pod_1a
+                  cpu_request: 1
+                  mem_request_gig: 2
+                  cpu_limit: 2
+                  mem_limit_gig: 4
+                  pod_seconds: 3600  # 1 hour
+                  labels: label_app:test|label_tier:frontend|label_environment:poc
+                - pod:
+                  pod_name: test_pod_1b
+                  cpu_request: 0.5
+                  mem_request_gig: 1
+                  cpu_limit: 1
+                  mem_limit_gig: 2
+                  pod_seconds: 7200  # 2 hours
+                  labels: label_app:test|label_tier:backend|label_environment:poc
+              volumes:
+                - volume:
+                  volume_name: pvc-test-vol-1
+                  storage_class: gp3-csi
+                  volume_request_gig: 10
+                  csi_volume_handle: vol-test-001
+                  labels: label_app:test|label_environment:poc
+                  volume_claims:
+                  - volume_claim:
+                    volume_claim_name: test_pvc_1
+                    pod_name: test_pod_1a
+                    labels: label_app:test|label_environment:poc
+                    capacity_gig: 10
+            
+            # Namespace 2: monitoring (1 pod)
+            monitoring:
+              pods:
+                - pod:
+                  pod_name: monitor_pod_1
+                  cpu_request: 0.25
+                  mem_request_gig: 0.5
+                  cpu_limit: 0.5
+                  mem_limit_gig: 1
+                  pod_seconds: 10800  # 3 hours
+                  labels: label_app:monitoring|label_environment:poc
+        
+        # Node 2: Master node with system pods
+        - node:
+          node_name: poc_node_master_1
+          node_labels: label_nodeclass:master|label_node_role_kubernetes_io:master
+          cpu_cores: 2
+          memory_gig: 8
+          resource_id: 100002
+          namespaces:
+            kube-system:
+              pods:
+                - pod:
+                  pod_name: kube_apiserver
+                  cpu_request: 0.5
+                  mem_request_gig: 1
+                  cpu_limit: 1
+                  mem_limit_gig: 2
+                  pod_seconds: 86400  # Full day (24 hours)
+                  labels: label_component:apiserver|label_tier:control-plane
+
+# Expected Results (for validation):
+# 
+# Day 1 (2025-11-01):
+# 
+# Namespace: test-app, Node: poc_node_compute_1
+#   pod_request_cpu_core_hours = 1.0 + 1.0 = 2.0 (pod_1a: 1*1 + pod_1b: 0.5*2)
+#   pod_request_memory_gigabyte_hours = 2.0 + 2.0 = 4.0 (pod_1a: 2*1 + pod_1b: 1*2)
+#   node_capacity_cpu_core_hours = 4 * 24 = 96.0
+#   node_capacity_memory_gigabyte_hours = 16 * 24 = 384.0
+# 
+# Namespace: monitoring, Node: poc_node_compute_1
+#   pod_request_cpu_core_hours = 0.25 * 3 = 0.75
+#   pod_request_memory_gigabyte_hours = 0.5 * 3 = 1.5
+#   node_capacity_cpu_core_hours = 96.0 (same node)
+#   node_capacity_memory_gigabyte_hours = 384.0
+# 
+# Namespace: kube-system, Node: poc_node_master_1
+#   pod_request_cpu_core_hours = 0.5 * 24 = 12.0
+#   pod_request_memory_gigabyte_hours = 1.0 * 24 = 24.0
+#   node_capacity_cpu_core_hours = 2 * 24 = 48.0
+#   node_capacity_memory_gigabyte_hours = 8 * 24 = 192.0
+# 
+# Total Expected Rows per Day: 3 (3 namespace-node combinations)
+# Total Expected Rows (3 days): 9
+

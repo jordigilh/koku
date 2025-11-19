@@ -204,19 +204,19 @@ def parse_static_yaml(yaml_path):
 def calculate_expected_aggregations(config):
     """Calculate expected daily aggregations."""
     results = []
-    
+
     for node in config['nodes']:
         for namespace in node['namespaces']:
             for pod in namespace['pods']:
                 # Calculate pod_request_cpu_core_hours
                 # = (cpu_request) * (pod_seconds / 3600)
-                
+
                 # Calculate pod_request_memory_gigabyte_hours
                 # = (mem_request_gig) * (pod_seconds / 3600)
-                
+
                 # Calculate node_capacity_cpu_core_hours
                 # = node.cpu_cores * 24  # assuming 24-hour day
-                
+
                 results.append({
                     'usage_start': date,
                     'namespace': namespace.name,
@@ -225,7 +225,7 @@ def calculate_expected_aggregations(config):
                     'pod_request_memory_gigabyte_hours': calculated_value,
                     # ... more metrics
                 })
-    
+
     return pd.DataFrame(results)
 
 def compare_results(expected_df, actual_df, tolerance=0.0001):
@@ -243,19 +243,19 @@ def compare_results(expected_df, actual_df, tolerance=0.0001):
 
 if args.validate_expected:
     logger.info("Phase 8: Validating against expected results...")
-    
+
     from scripts.calculate_expected_results import (
         parse_static_yaml,
         calculate_expected_aggregations,
         compare_results
     )
-    
+
     expected_df = calculate_expected_aggregations(
         parse_static_yaml(args.static_yaml)
     )
-    
+
     comparison_result = compare_results(expected_df, aggregated_df)
-    
+
     if comparison_result['all_match']:
         logger.info("✅ ALL RESULTS MATCH EXPECTED VALUES!")
     else:
