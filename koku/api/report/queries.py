@@ -880,6 +880,10 @@ class ReportQueryHandler(QueryHandler):
         # remove access from the output
         output.pop("access")
 
+        # Ensure filter key always exists for SaaS parity (even if empty)
+        if "filter" not in output or output["filter"] is None:
+            output["filter"] = {}
+
         return output
 
     def _pack_data_object(self, data, **kwargs):  # noqa: C901
