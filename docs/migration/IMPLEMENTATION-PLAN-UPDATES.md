@@ -23,7 +23,7 @@ public.aws_line_items_daily_staging
   - ... other columns
 ```
 
-**Impact**: 
+**Impact**:
 - Simpler schema management
 - Better for multi-tenancy
 - Easier to maintain
@@ -173,14 +173,14 @@ CREATE TABLE IF NOT EXISTS public.aws_line_items_daily_staging (
     year VARCHAR(4) NOT NULL,
     month VARCHAR(2) NOT NULL,
     row_uuid UUID DEFAULT gen_random_uuid(),
-    
+
     -- AWS CUR fields (from CSV)
     bill_billingentity VARCHAR(255),
     bill_billingperiodstartdate TIMESTAMP,
     bill_billingperiodenddate TIMESTAMP,
     bill_invoiceid VARCHAR(255),
     bill_payeraccountid VARCHAR(50),
-    
+
     lineitem_usagestartdate TIMESTAMP NOT NULL,
     lineitem_usageenddate TIMESTAMP,
     lineitem_productcode VARCHAR(255),
@@ -198,24 +198,24 @@ CREATE TABLE IF NOT EXISTS public.aws_line_items_daily_staging (
     lineitem_blendedcost DECIMAL(24,9),
     lineitem_lineitemtype VARCHAR(50),
     lineitem_usageaccountid VARCHAR(50),
-    
+
     product_productname VARCHAR(255),
     product_productfamily VARCHAR(255),
     product_region VARCHAR(50),
     product_instancetype VARCHAR(100),
-    
+
     pricing_unit VARCHAR(50),
     pricing_publicondemandcost DECIMAL(24,9),
     pricing_publicondemandrate DECIMAL(24,9),
-    
+
     savingsplan_savingsplaneffectivecost DECIMAL(24,9),
-    
+
     resourcetags JSONB,
     costcategory JSONB,
-    
+
     -- Partitioning key
     partition_date DATE GENERATED ALWAYS AS (lineitem_usagestartdate::date) STORED,
-    
+
     -- Constraints
     PRIMARY KEY (tenant_id, source, year, month, row_uuid)
 ) PARTITION BY RANGE (partition_date);
@@ -257,7 +257,7 @@ CREATE TABLE IF NOT EXISTS public.azure_line_items_daily_staging (
     year VARCHAR(4) NOT NULL,
     month VARCHAR(2) NOT NULL,
     row_uuid UUID DEFAULT gen_random_uuid(),
-    
+
     -- Azure fields
     subscriptionid VARCHAR(255),
     resourceid TEXT,
@@ -271,7 +271,7 @@ CREATE TABLE IF NOT EXISTS public.azure_line_items_daily_staging (
     pretaxcost DECIMAL(24,9),
     costinbillingcurrency DECIMAL(24,9),
     tags JSONB,
-    
+
     partition_date DATE GENERATED ALWAYS AS (usagedatetime::date) STORED,
     PRIMARY KEY (tenant_id, source, year, month, row_uuid)
 ) PARTITION BY RANGE (partition_date);
@@ -283,7 +283,7 @@ CREATE TABLE IF NOT EXISTS public.gcp_line_items_daily_staging (
     year VARCHAR(4) NOT NULL,
     month VARCHAR(2) NOT NULL,
     row_uuid UUID DEFAULT gen_random_uuid(),
-    
+
     -- GCP fields
     billing_account_id VARCHAR(255),
     project_id VARCHAR(255),
@@ -298,7 +298,7 @@ CREATE TABLE IF NOT EXISTS public.gcp_line_items_daily_staging (
     currency VARCHAR(10),
     resource_name TEXT,
     labels JSONB,
-    
+
     partition_date DATE GENERATED ALWAYS AS (usage_start_time::date) STORED,
     PRIMARY KEY (tenant_id, source, year, month, row_uuid)
 ) PARTITION BY RANGE (partition_date);
@@ -310,7 +310,7 @@ CREATE TABLE IF NOT EXISTS public.openshift_pod_usage_line_items_daily (
     year VARCHAR(4) NOT NULL,
     month VARCHAR(2) NOT NULL,
     row_uuid UUID DEFAULT gen_random_uuid(),
-    
+
     -- OCP fields
     cluster_id VARCHAR(255),
     cluster_alias VARCHAR(255),
@@ -328,7 +328,7 @@ CREATE TABLE IF NOT EXISTS public.openshift_pod_usage_line_items_daily (
     pod_limit_memory_byte_seconds DECIMAL(24,9),
     pod_labels JSONB,
     volume_labels JSONB,
-    
+
     partition_date DATE GENERATED ALWAYS AS (interval_start::date) STORED,
     PRIMARY KEY (tenant_id, source, year, month, row_uuid)
 ) PARTITION BY RANGE (partition_date);
@@ -358,28 +358,28 @@ BEGIN
         WHEN 'OCP' THEN 'openshift_pod_usage_line_items_daily'
         ELSE NULL
     END;
-    
+
     IF v_table_name IS NULL THEN
         RAISE EXCEPTION 'Invalid provider type: %', p_provider_type;
     END IF;
-    
+
     -- Build COPY command
     v_copy_sql := format(
-        'COPY public.%I (tenant_id, source, year, month, %s) 
-         FROM %L 
+        'COPY public.%I (tenant_id, source, year, month, %s)
+         FROM %L
          WITH (FORMAT csv, HEADER true, DELIMITER '','', ENCODING ''UTF8'')',
         v_table_name,
         -- Column list varies by provider (omitted for brevity)
         'lineitem_usagestartdate, lineitem_usageamount, ...',
         p_csv_path
     );
-    
+
     -- Execute COPY
     EXECUTE v_copy_sql;
-    
+
     -- Get row count
     GET DIAGNOSTICS v_row_count = ROW_COUNT;
-    
+
     RETURN v_row_count;
 END;
 $$ LANGUAGE plpgsql;
@@ -400,25 +400,25 @@ BEGIN
     -- Calculate partition boundaries (monthly partitions)
     v_start_date := date_trunc('month', p_partition_date);
     v_end_date := v_start_date + INTERVAL '1 month';
-    
+
     -- Generate partition name
     v_partition_name := format(
         '%s_%s',
         p_table_name,
         to_char(v_start_date, 'YYYY_MM')
     );
-    
+
     -- Create partition if it doesn't exist
     EXECUTE format(
-        'CREATE TABLE IF NOT EXISTS public.%I 
-         PARTITION OF public.%I 
+        'CREATE TABLE IF NOT EXISTS public.%I
+         PARTITION OF public.%I
          FOR VALUES FROM (%L) TO (%L)',
         v_partition_name,
         p_table_name,
         v_start_date,
         v_end_date
     );
-    
+
     RAISE NOTICE 'Created partition: %', v_partition_name;
 END;
 $$ LANGUAGE plpgsql;
@@ -457,11 +457,11 @@ LOG = logging.getLogger(__name__)
 
 class CSVDirectLoader:
     """Load CSV files directly into PostgreSQL staging tables"""
-    
+
     def __init__(self, tenant_id: int, source_uuid: str, provider_type: str):
         """
         Initialize CSV loader.
-        
+
         Args:
             tenant_id: Tenant ID from tenants table
             source_uuid: Provider source UUID
@@ -470,7 +470,7 @@ class CSVDirectLoader:
         self.tenant_id = tenant_id
         self.source_uuid = source_uuid
         self.provider_type = provider_type.upper()
-        
+
         # Map provider types to table names
         self.table_map = {
             'AWS': 'aws_line_items_daily_staging',
@@ -478,19 +478,19 @@ class CSVDirectLoader:
             'GCP': 'gcp_line_items_daily_staging',
             'OCP': 'openshift_pod_usage_line_items_daily'
         }
-    
+
     def load_csv_file(self, csv_file_path: str, year: str, month: str) -> int:
         """
         Load CSV file directly into PostgreSQL staging table.
-        
+
         Args:
             csv_file_path: Path to CSV file
             year: Year (YYYY)
             month: Month (MM)
-            
+
         Returns:
             Number of rows loaded
-            
+
         Example:
             >>> loader = CSVDirectLoader(tenant_id=1, source_uuid='...', provider_type='AWS')
             >>> rows = loader.load_csv_file('/path/to/file.csv', '2025', '11')
@@ -498,42 +498,42 @@ class CSVDirectLoader:
         """
         if not os.path.exists(csv_file_path):
             raise FileNotFoundError(f"CSV file not found: {csv_file_path}")
-        
+
         table_name = self.table_map.get(self.provider_type)
         if not table_name:
             raise ValueError(f"Invalid provider type: {self.provider_type}")
-        
+
         LOG.info(f"Loading CSV file: {csv_file_path} into {table_name}")
-        
+
         # Ensure partition exists for this month
         self._ensure_partition_exists(table_name, year, month)
-        
+
         # Load CSV using PostgreSQL COPY command
         row_count = self._copy_csv_to_table(csv_file_path, table_name, year, month)
-        
+
         LOG.info(f"Successfully loaded {row_count} rows from {csv_file_path}")
-        
+
         return row_count
-    
+
     def _ensure_partition_exists(self, table_name: str, year: str, month: str):
         """Ensure partition exists for the given year/month"""
         partition_date = f"{year}-{month}-01"
-        
+
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT create_staging_partition(%s, %s)",
                 [table_name, partition_date]
             )
-    
+
     def _copy_csv_to_table(self, csv_file_path: str, table_name: str, year: str, month: str) -> int:
         """
         Use PostgreSQL COPY command to load CSV.
-        
+
         This is the fastest way to load data into PostgreSQL.
         """
         # Get column list for this provider type
         columns = self._get_column_list(self.provider_type)
-        
+
         # Build COPY command
         copy_sql = f"""
             COPY public.{table_name} (
@@ -552,20 +552,20 @@ class CSVDirectLoader:
                 NULL ''
             )
         """
-        
+
         # Execute COPY
         with connection.cursor() as cursor:
             with open(csv_file_path, 'r') as f:
                 cursor.copy_expert(copy_sql, f)
                 row_count = cursor.rowcount
-        
+
         return row_count
-    
+
     def _get_column_list(self, provider_type: str) -> str:
         """Get comma-separated column list for provider type"""
         # Column mappings for each provider
         # (Abbreviated - full list in actual implementation)
-        
+
         columns_map = {
             'AWS': """
                 bill_billingentity,
@@ -602,7 +602,7 @@ class CSVDirectLoader:
                 -- ... all OCP columns
             """
         }
-        
+
         return columns_map.get(provider_type, '')
 
 
@@ -610,18 +610,18 @@ class CSVDirectLoader:
 def process_csv_report(tenant_id, source_uuid, provider_type, csv_file_path, year, month):
     """
     Process CSV report by loading directly into PostgreSQL.
-    
+
     This replaces the old flow:
         CSV → Parquet → S3 → Hive → Trino → PostgreSQL
-    
+
     With new flow:
         CSV → PostgreSQL (direct)
     """
     loader = CSVDirectLoader(tenant_id, source_uuid, provider_type)
     row_count = loader.load_csv_file(csv_file_path, year, month)
-    
+
     LOG.info(f"Processed {row_count} rows for {provider_type} source {source_uuid}")
-    
+
     return row_count
 ```
 

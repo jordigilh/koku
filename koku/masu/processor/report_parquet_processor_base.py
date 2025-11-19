@@ -219,12 +219,12 @@ class ReportParquetProcessorBase:
 
     def sync_hive_partitions(self):
         """Sync hive partition metadata for new partitions.
-        
+
         Retries on table-not-found errors to handle race condition where
         Hive Metastore hasn't fully registered a newly created table yet.
         """
         import time
-        
+
         LOG.info(
             log_json(
                 msg="syncing trino/hive partitions",
@@ -234,11 +234,11 @@ class ReportParquetProcessorBase:
         )
         sql = "CALL system.sync_partition_metadata('" f"{self._schema_name}', " f"'{self._table_name}', " "'FULL')"
         LOG.info(sql)
-        
+
         # Retry logic for newly created tables
         max_retries = 3
         retry_delay = 2  # seconds
-        
+
         for attempt in range(max_retries):
             try:
                 self._execute_trino_sql(sql, self._schema_name)
