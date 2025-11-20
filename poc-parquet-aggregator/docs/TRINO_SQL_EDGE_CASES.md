@@ -117,7 +117,7 @@ GROUP BY nc.usage_start
 
 ### Effective Usage Calculation (Line 277):
 ```sql
-sum(coalesce(li.pod_effective_usage_cpu_core_seconds, 
+sum(coalesce(li.pod_effective_usage_cpu_core_seconds,
     greatest(li.pod_usage_cpu_core_seconds, li.pod_request_cpu_core_seconds))) / 3600.0
 ```
 

@@ -195,12 +195,21 @@ class ExpectedResultsCalculator:
     def _aggregate_pod(self, pod: Dict, agg: Dict):
         """Aggregate a single pod's metrics into the accumulator.
         
+        Replicates Trino SQL lines 275-288:
+        - CPU: sum(seconds) / 3600.0
+        - Memory: sum(byte_seconds) / 3600.0 * power(2, -30)
+        - Effective: coalesce(field, greatest(usage, request))
+        
         Args:
             pod: Pod configuration dictionary
             agg: Accumulator dictionary (modified in place)
         """
-        # Convert pod_seconds to hours
+        # Skip pods with missing pod_seconds
         pod_seconds = pod.get('pod_seconds', 0)
+        if not pod_seconds:
+            return
+        
+        # Convert pod_seconds to hours
         pod_hours = float(pod_seconds) / 3600.0
         
         # CPU metrics

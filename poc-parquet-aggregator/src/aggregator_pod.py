@@ -121,15 +121,27 @@ class PodAggregator:
 
     def _prepare_pod_usage_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """Prepare pod usage data (parse dates, parse labels).
-
+        
         Args:
             df: Raw pod usage DataFrame
-
+            
         Returns:
             Prepared DataFrame
         """
         df = df.copy()
-
+        
+        # Critical Filter: Exclude empty nodes (Trino SQL line 309: AND li.node != '')
+        initial_count = len(df)
+        df = df[df['node'].notna() & (df['node'] != '')]
+        filtered_count = len(df)
+        
+        if initial_count > filtered_count:
+            self.logger.warning(
+                f"Filtered out {initial_count - filtered_count} rows with empty/null nodes",
+                initial_rows=initial_count,
+                filtered_rows=filtered_count
+            )
+        
         # Parse interval_start as date
         df['usage_start'] = pd.to_datetime(df['interval_start']).dt.date
 
@@ -222,20 +234,25 @@ class PodAggregator:
         pod_labels: Optional[Dict]
     ) -> Dict[str, str]:
         """Merge node + namespace + pod labels (replicates Trino map_concat).
-
+        
+        Trino SQL logic (lines 266-273):
+        - COALESCE NULL labels to empty map: map(array[], array[])
+        - Merge order: node → namespace → pod (later overrides earlier)
+        
         Args:
-            node_labels: Node label dictionary
-            namespace_labels: Namespace label dictionary
-            pod_labels: Pod label dictionary
-
+            node_labels: Node label dictionary (None → {})
+            namespace_labels: Namespace label dictionary (None → {})
+            pod_labels: Pod label dictionary (None → {})
+            
         Returns:
             Merged label dictionary
         """
-        return merge_label_dicts(
-            node_labels or {},
-            namespace_labels or {},
-            pod_labels or {}
-        )
+        # COALESCE NULL to empty dict (Trino: cast(map(array[], array[]) as json))
+        node_labels = node_labels if node_labels is not None else {}
+        namespace_labels = namespace_labels if namespace_labels is not None else {}
+        pod_labels = pod_labels if pod_labels is not None else {}
+        
+        return merge_label_dicts(node_labels, namespace_labels, pod_labels)
 
     def _group_and_aggregate(self, df: pd.DataFrame) -> pd.DataFrame:
         """Group by (usage_start, namespace, node) and aggregate metrics.
@@ -267,28 +284,31 @@ class PodAggregator:
             'node_capacity_memory_bytes': lambda x: convert_bytes_to_gigabytes(x.max())
         }
 
-        # Calculate effective usage before grouping
-        df['pod_effective_usage_cpu_core_seconds'] = df.apply(
-            lambda row: coalesce(
-                row.get('pod_effective_usage_cpu_core_seconds'),
-                safe_greatest(
-                    row.get('pod_usage_cpu_core_seconds'),
-                    row.get('pod_request_cpu_core_seconds')
-                )
-            ),
-            axis=1
-        )
-
-        df['pod_effective_usage_memory_byte_seconds'] = df.apply(
-            lambda row: coalesce(
-                row.get('pod_effective_usage_memory_byte_seconds'),
-                safe_greatest(
-                    row.get('pod_usage_memory_byte_seconds'),
-                    row.get('pod_request_memory_byte_seconds')
-                )
-            ),
-            axis=1
-        )
+            # Calculate effective usage before grouping
+            # Trino SQL line 277: coalesce(li.pod_effective_usage_cpu_core_seconds,
+            #                             greatest(li.pod_usage_cpu_core_seconds, li.pod_request_cpu_core_seconds))
+            df['pod_effective_usage_cpu_core_seconds'] = df.apply(
+                lambda row: coalesce(
+                    row.get('pod_effective_usage_cpu_core_seconds'),
+                    safe_greatest(
+                        row.get('pod_usage_cpu_core_seconds'),
+                        row.get('pod_request_cpu_core_seconds')
+                    )
+                ),
+                axis=1
+            )
+            
+            # Same logic for memory (Trino SQL line 281)
+            df['pod_effective_usage_memory_byte_seconds'] = df.apply(
+                lambda row: coalesce(
+                    row.get('pod_effective_usage_memory_byte_seconds'),
+                    safe_greatest(
+                        row.get('pod_usage_memory_byte_seconds'),
+                        row.get('pod_request_memory_byte_seconds')
+                    )
+                ),
+                axis=1
+            )
 
         # Add effective usage to aggregation
         agg_funcs['pod_effective_usage_cpu_core_seconds'] = lambda x: convert_seconds_to_hours(x.sum())
@@ -409,9 +429,10 @@ class PodAggregator:
         df['infrastructure_usage_cost'] = '{"cpu": 0.000000000, "memory": 0.000000000, "storage": 0.000000000}'
 
         # Partition columns
+        # Note: Trino SQL line 665 uses lpad(month, 2, '0') for zero-padding
         df['source'] = self.provider_uuid
         df['year'] = df['usage_start'].apply(lambda d: str(d.year))
-        df['month'] = df['usage_start'].apply(lambda d: str(d.month))
+        df['month'] = df['usage_start'].apply(lambda d: str(d.month).zfill(2))  # Zero-pad: '1' → '01'
         df['day'] = df['usage_start'].apply(lambda d: str(d.day))
 
         # Select columns in correct order
@@ -438,34 +459,50 @@ class PodAggregator:
 
 def calculate_node_capacity(pod_usage_df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Calculate node and cluster capacity (replicates CTEs in Trino SQL).
-
-    This replicates lines 143-171 of the Trino SQL.
-
+    
+    Trino SQL Logic (lines 143-171):
+    1. Inner query: MAX capacity per interval + node
+    2. Outer query: SUM of max capacities per day + node
+    3. Cluster capacity: SUM across all nodes per day
+    
+    IMPORTANT: This requires hourly interval data (openshift_pod_usage_line_items),
+    NOT daily aggregated data (openshift_pod_usage_line_items_daily).
+    
+    The POC currently uses daily data, which is a simplification.
+    For production, this should read from the hourly Parquet files.
+    
     Args:
-        pod_usage_df: Pod usage line items
-
+        pod_usage_df: Pod usage line items (ideally hourly)
+        
     Returns:
         Tuple of (node_capacity_df, cluster_capacity_df)
     """
     logger = get_logger("capacity_calculator")
-
+    
     with PerformanceTimer("Calculate node/cluster capacity", logger):
         # Parse usage_start
         df = pod_usage_df.copy()
         df['usage_start'] = pd.to_datetime(df['interval_start']).dt.date
-
-        # Step 1: Get max capacity per interval + node (inner query)
+        
+        # Step 1: Get max capacity per interval + node (Trino lines 149-160)
+        # NOTE: If input is already daily aggregated, this step is a no-op
         interval_capacity = df.groupby(['interval_start', 'node']).agg({
             'node_capacity_cpu_core_seconds': 'max',
             'node_capacity_memory_byte_seconds': 'max'
         }).reset_index()
-
-        # Step 2: Sum across intervals for each day + node
+        
+        # Step 2: Sum across intervals for each day + node (Trino lines 143-164)
         interval_capacity['usage_start'] = pd.to_datetime(interval_capacity['interval_start']).dt.date
         node_capacity = interval_capacity.groupby(['usage_start', 'node']).agg({
             'node_capacity_cpu_core_seconds': 'sum',
             'node_capacity_memory_byte_seconds': 'sum'
         }).reset_index()
+        
+        logger.debug(
+            "Node capacity calculation",
+            intervals=len(interval_capacity),
+            node_days=len(node_capacity)
+        )
 
         # Convert to hours and GB
         node_capacity['node_capacity_cpu_core_hours'] = node_capacity['node_capacity_cpu_core_seconds'] / 3600.0

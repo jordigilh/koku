@@ -225,13 +225,16 @@ class DatabaseWriter:
         
         Args:
             provider_uuid: Provider UUID
-            year: Year
-            month: Month
+            year: Year (e.g., '2025')
+            month: Month (e.g., '11' or '01' - will be zero-padded)
             
         Returns:
             Dictionary with validation metrics
         """
         table_name = f"{self.schema}.reporting_ocpusagelineitem_daily_summary"
+        
+        # Zero-pad month (Trino SQL line 665: lpad(lids.month, 2, '0'))
+        month_padded = str(month).zfill(2)
         
         with PerformanceTimer("Validate summary data", self.logger):
             query = f"""
@@ -252,7 +255,7 @@ class DatabaseWriter:
             
             try:
                 with self.connection.cursor() as cursor:
-                    cursor.execute(query, (provider_uuid, year, month))
+                    cursor.execute(query, (provider_uuid, year, month_padded))
                     row = cursor.fetchone()
                     
                     result = {
