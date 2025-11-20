@@ -177,24 +177,24 @@ def run_poc(args):
         logger.info("Validation Results:")
         for key, value in validation_result.items():
             logger.info(f"  {key}: {value}")
-        
+
         # ====================================================================
         # Phase 8: Validate against expected results (if requested)
         # ====================================================================
         if args.validate_expected:
             logger.info("Phase 8: Validating against expected results...")
-            
+
             from .expected_results import ExpectedResultsCalculator, compare_results
-            
+
             calculator = ExpectedResultsCalculator(args.validate_expected)
             expected_df = calculator.calculate_expected_aggregations()
-            
+
             logger.info(f"Calculated {len(expected_df)} expected result rows")
             calculator.print_summary(expected_df)
-            
+
             # Compare with aggregated results
             comparison_result = compare_results(expected_df, aggregated_df)
-            
+
             if comparison_result['all_match']:
                 logger.info("=" * 80)
                 logger.info("✅ VALIDATION SUCCESS: ALL RESULTS MATCH EXPECTED VALUES!")
@@ -208,10 +208,10 @@ def run_poc(args):
                 logger.error(f"Missing in actual: {comparison_result['missing_in_actual_count']}")
                 logger.error(f"Extra in actual: {comparison_result['extra_in_actual_count']}")
                 logger.error(f"Issues found: {len(comparison_result['issues'])}")
-                
+
                 # Exit with error if validation fails
                 return 1
-        
+
         # ====================================================================
         # Summary
         # ====================================================================
@@ -259,16 +259,16 @@ def main():
         action='store_true',
         help='Run validation against Trino results (not implemented yet)'
     )
-    
+
     parser.add_argument(
         '--validate-expected',
         type=str,
         metavar='YAML_FILE',
         help='Validate against expected results from nise static YAML'
     )
-    
+
     args = parser.parse_args()
-    
+
     if args.validate:
         print("ERROR: Validation against Trino not yet implemented")
         print("This will be added in Phase 2 of the POC")

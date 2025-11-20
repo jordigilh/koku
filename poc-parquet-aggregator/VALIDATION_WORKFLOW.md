@@ -213,7 +213,7 @@ Matched 90/90 comparisons
 
 ```bash
 psql -h $POSTGRES_HOST -U koku -d koku -c "
-SELECT 
+SELECT
     usage_start,
     namespace,
     node,
@@ -229,7 +229,7 @@ ORDER BY usage_start, namespace, node;
 
 **Expected Results**:
 ```
- usage_start |  namespace  |         node         | cpu_req | mem_req 
+ usage_start |  namespace  |         node         | cpu_req | mem_req
 -------------+-------------+----------------------+---------+---------
  2025-11-01  | kube-system | poc_node_master_1    |   12.00 |   24.00
  2025-11-01  | monitoring  | poc_node_compute_1   |    0.75 |    1.50
