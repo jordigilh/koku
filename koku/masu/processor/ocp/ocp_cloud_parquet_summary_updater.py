@@ -5,6 +5,7 @@
 """Updates report summary tables in the database."""
 import datetime
 import logging
+import os
 
 from dateutil import parser
 from django.conf import settings
@@ -13,6 +14,10 @@ from django_tenants.utils import schema_context
 
 from api.common import log_json
 from api.provider.models import Provider
+
+# Feature flag to use POC Parquet Aggregator instead of Trino
+# Set USE_POC_AGGREGATOR=true to bypass Trino and use PyArrow-based processing
+USE_POC_AGGREGATOR = os.getenv("USE_POC_AGGREGATOR", "false").lower() == "true"
 from api.utils import DateHelper
 from koku.pg_partition import PartitionHandlerMixin
 from masu.database.aws_report_db_accessor import AWSReportDBAccessor
@@ -157,7 +162,10 @@ class OCPCloudParquetReportSummaryUpdater(PartitionHandlerMixin, OCPCloudUpdater
             None
 
         """
-        if infra_provider_type in (Provider.PROVIDER_AWS, Provider.PROVIDER_AWS_LOCAL):
+        # Feature flag: Use POC Parquet Aggregator instead of Trino for AWS
+        if USE_POC_AGGREGATOR and infra_provider_type in (Provider.PROVIDER_AWS, Provider.PROVIDER_AWS_LOCAL):
+            self._update_aws_summary_tables_poc(ocp_provider_uuid, infra_provider_uuid, start_date, end_date)
+        elif infra_provider_type in (Provider.PROVIDER_AWS, Provider.PROVIDER_AWS_LOCAL):
             self.update_aws_summary_tables(ocp_provider_uuid, infra_provider_uuid, start_date, end_date)
         elif infra_provider_type in (Provider.PROVIDER_AZURE, Provider.PROVIDER_AZURE_LOCAL):
             self.update_azure_summary_tables(ocp_provider_uuid, infra_provider_uuid, start_date, end_date)
@@ -171,6 +179,88 @@ class OCPCloudParquetReportSummaryUpdater(PartitionHandlerMixin, OCPCloudUpdater
         # Update the UI tables for the OpenShift provider
         with OCPReportDBAccessor(self._schema) as ocp_accessor:
             ocp_accessor.populate_ui_summary_tables(start_date, end_date, ocp_provider_uuid)
+
+    def _update_aws_summary_tables_poc(self, openshift_provider_uuid, aws_provider_uuid, start_date, end_date):
+        """
+        Update OCP-on-AWS summary tables using POC Parquet Aggregator (Trino replacement).
+
+        This method uses PyArrow-based processing instead of Trino SQL queries.
+        Enable with: USE_POC_AGGREGATOR=true
+        """
+        from masu.processor.parquet.poc_integration import process_ocp_aws_parquet_poc
+
+        if isinstance(start_date, str):
+            start_date = parser.parse(start_date).date()
+        if isinstance(end_date, str):
+            end_date = parser.parse(end_date).date()
+
+        cluster_id = get_cluster_id_from_provider(openshift_provider_uuid)
+
+        context = {
+            "schema": self._schema,
+            "ocp_provider_uuid": str(openshift_provider_uuid),
+            "aws_provider_uuid": str(aws_provider_uuid),
+            "cluster_id": cluster_id,
+            "start_date": str(start_date),
+            "end_date": str(end_date),
+        }
+
+        LOG.info(
+            log_json(
+                msg="POC: Using PyArrow aggregator for OCP-on-AWS instead of Trino",
+                **context,
+            )
+        )
+
+        # Handle partitions
+        with schema_context(self._schema):
+            self._handle_partitions(
+                self._schema,
+                (
+                    "reporting_ocpawscostlineitem_daily_summary_p",
+                    "reporting_ocpawscostlineitem_project_daily_summary_p",
+                    "reporting_ocpaws_compute_summary_p",
+                    "reporting_ocpaws_cost_summary_p",
+                    "reporting_ocpaws_cost_summary_by_account_p",
+                    "reporting_ocpaws_cost_summary_by_region_p",
+                    "reporting_ocpaws_cost_summary_by_service_p",
+                    "reporting_ocpaws_storage_summary_p",
+                    "reporting_ocpaws_database_summary_p",
+                    "reporting_ocpaws_network_summary_p",
+                    "reporting_ocpallcostlineitem_daily_summary_p",
+                    "reporting_ocpallcostlineitem_project_daily_summary_p",
+                    "reporting_ocpall_compute_summary_pt",
+                    "reporting_ocpall_cost_summary_pt",
+                ),
+                start_date,
+                end_date,
+            )
+
+        try:
+            result = process_ocp_aws_parquet_poc(
+                schema_name=self._schema,
+                ocp_provider_uuid=str(openshift_provider_uuid),
+                aws_provider_uuid=str(aws_provider_uuid),
+                year=start_date.year,
+                month=start_date.month,
+                cluster_id=cluster_id,
+            )
+            LOG.info(
+                log_json(
+                    msg="POC: OCP-on-AWS aggregation complete",
+                    result=result,
+                    **context,
+                )
+            )
+        except Exception as err:
+            LOG.error(
+                log_json(
+                    msg="POC: OCP-on-AWS aggregation failed",
+                    error=str(err),
+                    **context,
+                )
+            )
+            raise
 
     def update_aws_summary_tables(self, openshift_provider_uuid, aws_provider_uuid, start_date, end_date):
         """Update operations specifically for OpenShift on AWS."""
