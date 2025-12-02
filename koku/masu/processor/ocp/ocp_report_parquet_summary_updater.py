@@ -4,6 +4,7 @@
 #
 """Updates report summary tables in the database."""
 import logging
+import os
 from datetime import datetime
 
 import ciso8601
@@ -22,6 +23,10 @@ from masu.util.ocp.common import get_cluster_id_from_provider
 from reporting.provider.ocp.models import UI_SUMMARY_TABLES
 
 LOG = logging.getLogger(__name__)
+
+# Feature flag to use POC Parquet Aggregator instead of Trino
+# Set USE_POC_AGGREGATOR=true to bypass Trino and use PyArrow-based processing
+USE_POC_AGGREGATOR = os.getenv("USE_POC_AGGREGATOR", "false").lower() == "true"
 
 
 class OCPReportParquetSummaryUpdaterClusterNotFound(Exception):
@@ -89,6 +94,77 @@ class OCPReportParquetSummaryUpdater(PartitionHandlerMixin):
         start_date, end_date = self._get_sql_inputs(start_date, end_date)
         start_date, end_date = self._check_parquet_date_range(start_date, end_date)
 
+        # Feature flag: Use POC Parquet Aggregator instead of Trino
+        if USE_POC_AGGREGATOR:
+            return self._update_summary_tables_poc(start_date, end_date, **kwargs)
+
+        return self._update_summary_tables_trino(start_date, end_date, **kwargs)
+
+    def _update_summary_tables_poc(self, start_date, end_date, **kwargs):
+        """
+        Populate summary tables using POC Parquet Aggregator (Trino replacement).
+
+        This method uses PyArrow-based processing instead of Trino SQL queries.
+        Enable with: USE_POC_AGGREGATOR=true
+        """
+        from masu.processor.parquet.poc_integration import process_ocp_parquet_poc
+
+        LOG.info(
+            log_json(
+                msg="POC: Using PyArrow aggregator instead of Trino",
+                context=self._context,
+                start_date=start_date,
+                end_date=end_date,
+            )
+        )
+
+        with schema_context(self._schema):
+            self._handle_partitions(self._schema, UI_SUMMARY_TABLES, start_date, end_date)
+
+        try:
+            result = process_ocp_parquet_poc(
+                schema_name=self._schema,
+                provider_uuid=str(self._provider.uuid),
+                year=start_date.year,
+                month=start_date.month,
+                cluster_id=self._cluster_id,
+            )
+            LOG.info(
+                log_json(
+                    msg="POC: OCP aggregation complete",
+                    context=self._context,
+                    result=result,
+                )
+            )
+        except Exception as err:
+            LOG.error(
+                log_json(
+                    msg="POC: OCP aggregation failed",
+                    context=self._context,
+                    error=str(err),
+                )
+            )
+            raise
+
+        # Still need to update report period timestamps
+        with OCPReportDBAccessor(self._schema) as accessor:
+            with schema_context(self._schema):
+                report_period = accessor.report_periods_for_provider_uuid(self._provider.uuid, start_date)
+                if report_period:
+                    if report_period.summary_data_creation_datetime is None:
+                        report_period.summary_data_creation_datetime = timezone.now()
+                    report_period.summary_data_updated_datetime = timezone.now()
+                    report_period.save()
+
+            # Check for cloud infrastructure (skip Trino-based check when using POC)
+            # self.check_cluster_infrastructure(start_date, end_date)
+
+        return start_date, end_date
+
+    def _update_summary_tables_trino(self, start_date, end_date, **kwargs):
+        """
+        Populate summary tables using Trino SQL queries (original implementation).
+        """
         with schema_context(self._schema):
             self._handle_partitions(self._schema, UI_SUMMARY_TABLES, start_date, end_date)
 
