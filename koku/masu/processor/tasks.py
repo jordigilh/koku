@@ -1126,3 +1126,111 @@ def validate_daily_data(schema, start_date, end_date, provider_uuid, ocp_on_clou
         data_validator.check_data_integrity()
     else:
         LOG.info(log_json(msg="skipping validation, disabled for schema", context=context))
+
+
+# =============================================================================
+# POC Parquet Aggregator Tasks
+# =============================================================================
+# These tasks provide an alternative to Trino-based summarization using
+# PyArrow for parquet processing. Enable via environment variable:
+#   POC_AGGREGATOR_ENABLED=true
+# =============================================================================
+
+
+@celery_app.task(name="masu.processor.tasks.process_ocp_parquet_poc", queue=SummaryQueue.DEFAULT)
+def process_ocp_parquet_poc(schema_name, provider_uuid, year, month, cluster_id=None):
+    """
+    Process OCP parquet data using POC aggregator (Trino replacement).
+
+    This task processes OCP cost data using PyArrow instead of Trino SQL,
+    writing results to reporting_ocpusagelineitem_daily_summary.
+
+    Args:
+        schema_name: Database schema (org ID, e.g., 'org1234567')
+        provider_uuid: OCP provider UUID
+        year: Year to process (e.g., 2025)
+        month: Month to process (1-12)
+        cluster_id: Optional cluster ID filter
+
+    Returns:
+        dict with processing results and metrics
+
+    Example:
+        from masu.processor.tasks import process_ocp_parquet_poc
+        process_ocp_parquet_poc.delay('org1234567', 'uuid', 2025, 10)
+    """
+    from masu.processor.parquet.poc_integration import process_ocp_parquet_poc as _process
+
+    context = {
+        "schema": schema_name,
+        "provider_uuid": provider_uuid,
+        "year": year,
+        "month": month,
+        "cluster_id": cluster_id,
+    }
+    LOG.info(log_json(msg="POC: Starting OCP parquet aggregation", context=context))
+
+    try:
+        result = _process(
+            schema_name=schema_name,
+            provider_uuid=provider_uuid,
+            year=year,
+            month=month,
+            cluster_id=cluster_id,
+        )
+        LOG.info(log_json(msg="POC: OCP parquet aggregation complete", context=context, result=result))
+        return result
+    except Exception as err:
+        LOG.error(log_json(msg="POC: OCP parquet aggregation failed", context=context, error=str(err)))
+        raise
+
+
+@celery_app.task(name="masu.processor.tasks.process_ocp_aws_parquet_poc", queue=SummaryQueue.DEFAULT)
+def process_ocp_aws_parquet_poc(schema_name, ocp_provider_uuid, aws_provider_uuid, year, month, cluster_id=None):
+    """
+    Process OCP-on-AWS parquet data using POC aggregator (Trino replacement).
+
+    This task processes OCP-on-AWS cost attribution using PyArrow instead of
+    Trino SQL, writing results to reporting_ocpawscostlineitem_project_daily_summary_p.
+
+    Args:
+        schema_name: Database schema (org ID, e.g., 'org1234567')
+        ocp_provider_uuid: OCP provider UUID
+        aws_provider_uuid: AWS provider UUID
+        year: Year to process (e.g., 2025)
+        month: Month to process (1-12)
+        cluster_id: Optional cluster ID filter
+
+    Returns:
+        dict with processing results and metrics
+
+    Example:
+        from masu.processor.tasks import process_ocp_aws_parquet_poc
+        process_ocp_aws_parquet_poc.delay('org1234567', 'ocp-uuid', 'aws-uuid', 2025, 10)
+    """
+    from masu.processor.parquet.poc_integration import process_ocp_aws_parquet_poc as _process
+
+    context = {
+        "schema": schema_name,
+        "ocp_provider_uuid": ocp_provider_uuid,
+        "aws_provider_uuid": aws_provider_uuid,
+        "year": year,
+        "month": month,
+        "cluster_id": cluster_id,
+    }
+    LOG.info(log_json(msg="POC: Starting OCP-on-AWS parquet aggregation", context=context))
+
+    try:
+        result = _process(
+            schema_name=schema_name,
+            ocp_provider_uuid=ocp_provider_uuid,
+            aws_provider_uuid=aws_provider_uuid,
+            year=year,
+            month=month,
+            cluster_id=cluster_id,
+        )
+        LOG.info(log_json(msg="POC: OCP-on-AWS parquet aggregation complete", context=context, result=result))
+        return result
+    except Exception as err:
+        LOG.error(log_json(msg="POC: OCP-on-AWS parquet aggregation failed", context=context, error=str(err)))
+        raise
