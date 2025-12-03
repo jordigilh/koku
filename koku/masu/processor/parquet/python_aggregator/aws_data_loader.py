@@ -13,7 +13,7 @@ Key Features:
 
 import os
 from pathlib import Path
-from typing import Iterator, List, Optional
+from typing import Dict, Iterator, List, Optional
 
 import numpy as np
 import pandas as pd

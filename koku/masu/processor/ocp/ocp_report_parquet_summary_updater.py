@@ -107,7 +107,7 @@ class OCPReportParquetSummaryUpdater(PartitionHandlerMixin):
         This method uses PyArrow-based processing instead of Trino SQL queries.
         Enable with: USE_PYTHON_AGGREGATOR=true
         """
-        from masu.processor.parquet.poc_integration import process_ocp_parquet_poc
+        from masu.processor.parquet.poc_integration import process_ocp_parquet
 
         LOG.info(
             log_json(
@@ -122,7 +122,7 @@ class OCPReportParquetSummaryUpdater(PartitionHandlerMixin):
             self._handle_partitions(self._schema, UI_SUMMARY_TABLES, start_date, end_date)
 
         try:
-            result = process_ocp_parquet_poc(
+            result = process_ocp_parquet(
                 schema_name=self._schema,
                 provider_uuid=str(self._provider.uuid),
                 year=start_date.year,
