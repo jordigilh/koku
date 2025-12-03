@@ -12,6 +12,18 @@ This document provides context for continuing the Python Aggregator integration 
 
 **Success Criteria**: OCP-only and OCP-on-AWS **end-to-end tests must pass**. The koku dev team requires these e2e tests (run via IQE framework) to pass before accepting this integration.
 
+## ⚠️ Important Resources Available
+
+1. **AMD64 Build Host**: `ssh -p 2022 jgil@localhost`
+   - Use this to build container images (the local Mac is ARM64, cluster needs AMD64)
+   - Koku source is already synced to `~/koku-build/` on this host
+   - Podman is configured and logged into quay.io
+
+2. **Kubernetes Cluster**: Koku is deployed in the `cost-mgmt` namespace
+   - API Route: `http://koku-api-cost-mgmt.apps.stress.parodos.dev`
+   - Use `oc` commands to interact with the cluster
+   - Deployments already have `USE_PYTHON_AGGREGATOR=true` set
+
 ## Current State
 
 ### Branch
@@ -222,7 +234,7 @@ Yes, your verification is correct - line 16 is missing `Dict` in the import.
   - IQE tests?
   - If yes, what were the results/errors?
 
-**A**: 
+**A**:
 - **Local unit tests**: Could not run locally because Django is not installed on the Mac - the tests require Django environment.
 - **Cluster deployment**: Yes, deployed multiple times. Got as far as verifying the image deploys and `USE_PYTHON_AGGREGATOR=true` is set. Import tests fail due to the `Dict` error.
 - **IQE tests**: Not yet - blocked by import errors. Once imports work, IQE tests are next.
@@ -233,7 +245,7 @@ Yes, your verification is correct - line 16 is missing `Dict` in the import.
   - If yes, when was it last built?
   - If no, is the remote Fedora build host (ssh -p 2022 jgil@localhost) still accessible?
 
-**A**: 
+**A**:
 - **Yes**, the image has been built and pushed multiple times today (Dec 3, 2025).
 - **Last build**: ~30 minutes ago, but it still has the `Dict` import bug (I fixed `aggregator_pod.py` and `utils.py` but haven't rebuilt since discovering `aws_data_loader.py` also needs fixing).
 - **Build host**: Yes, `ssh -p 2022 jgil@localhost` is accessible. The koku source is synced to `~/koku-build/` on that host.
@@ -258,7 +270,7 @@ Yes, your verification is correct - line 16 is missing `Dict` in the import.
   - Database schema mismatches?
 
 **A**:
-- **Other import errors**: 
+- **Other import errors**:
   - Fixed: `structlog` was used in `utils.py` - replaced with standard `logging` module.
   - Fixed: `Dict` missing in `aggregator_pod.py` - added to imports.
   - **Still broken**: `Dict` missing in `aws_data_loader.py` (and possibly other files).
