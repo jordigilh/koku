@@ -25,8 +25,8 @@ from reporting.provider.ocp.models import UI_SUMMARY_TABLES
 LOG = logging.getLogger(__name__)
 
 # Feature flag to use POC Parquet Aggregator instead of Trino
-# Set USE_POC_AGGREGATOR=true to bypass Trino and use PyArrow-based processing
-USE_POC_AGGREGATOR = os.getenv("USE_POC_AGGREGATOR", "false").lower() == "true"
+# Set USE_PYTHON_AGGREGATOR=true to bypass Trino and use PyArrow-based processing
+USE_PYTHON_AGGREGATOR = os.getenv("USE_PYTHON_AGGREGATOR", "false").lower() == "true"
 
 
 class OCPReportParquetSummaryUpdaterClusterNotFound(Exception):
@@ -95,7 +95,7 @@ class OCPReportParquetSummaryUpdater(PartitionHandlerMixin):
         start_date, end_date = self._check_parquet_date_range(start_date, end_date)
 
         # Feature flag: Use POC Parquet Aggregator instead of Trino
-        if USE_POC_AGGREGATOR:
+        if USE_PYTHON_AGGREGATOR:
             return self._update_summary_tables_poc(start_date, end_date, **kwargs)
 
         return self._update_summary_tables_trino(start_date, end_date, **kwargs)
@@ -105,7 +105,7 @@ class OCPReportParquetSummaryUpdater(PartitionHandlerMixin):
         Populate summary tables using POC Parquet Aggregator (Trino replacement).
 
         This method uses PyArrow-based processing instead of Trino SQL queries.
-        Enable with: USE_POC_AGGREGATOR=true
+        Enable with: USE_PYTHON_AGGREGATOR=true
         """
         from masu.processor.parquet.poc_integration import process_ocp_parquet_poc
 

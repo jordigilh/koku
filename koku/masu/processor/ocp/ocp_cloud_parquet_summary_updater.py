@@ -16,8 +16,8 @@ from api.common import log_json
 from api.provider.models import Provider
 
 # Feature flag to use POC Parquet Aggregator instead of Trino
-# Set USE_POC_AGGREGATOR=true to bypass Trino and use PyArrow-based processing
-USE_POC_AGGREGATOR = os.getenv("USE_POC_AGGREGATOR", "false").lower() == "true"
+# Set USE_PYTHON_AGGREGATOR=true to bypass Trino and use PyArrow-based processing
+USE_PYTHON_AGGREGATOR = os.getenv("USE_PYTHON_AGGREGATOR", "false").lower() == "true"
 from api.utils import DateHelper
 from koku.pg_partition import PartitionHandlerMixin
 from masu.database.aws_report_db_accessor import AWSReportDBAccessor
@@ -163,7 +163,7 @@ class OCPCloudParquetReportSummaryUpdater(PartitionHandlerMixin, OCPCloudUpdater
 
         """
         # Feature flag: Use POC Parquet Aggregator instead of Trino for AWS
-        if USE_POC_AGGREGATOR and infra_provider_type in (Provider.PROVIDER_AWS, Provider.PROVIDER_AWS_LOCAL):
+        if USE_PYTHON_AGGREGATOR and infra_provider_type in (Provider.PROVIDER_AWS, Provider.PROVIDER_AWS_LOCAL):
             self._update_aws_summary_tables_poc(ocp_provider_uuid, infra_provider_uuid, start_date, end_date)
         elif infra_provider_type in (Provider.PROVIDER_AWS, Provider.PROVIDER_AWS_LOCAL):
             self.update_aws_summary_tables(ocp_provider_uuid, infra_provider_uuid, start_date, end_date)
@@ -185,7 +185,7 @@ class OCPCloudParquetReportSummaryUpdater(PartitionHandlerMixin, OCPCloudUpdater
         Update OCP-on-AWS summary tables using POC Parquet Aggregator (Trino replacement).
 
         This method uses PyArrow-based processing instead of Trino SQL queries.
-        Enable with: USE_POC_AGGREGATOR=true
+        Enable with: USE_PYTHON_AGGREGATOR=true
         """
         from masu.processor.parquet.poc_integration import process_ocp_aws_parquet_poc
 

@@ -145,13 +145,13 @@ class TestPOCIntegration(TestCase):
 
 
 class TestPOCFeatureFlag(TestCase):
-    """Test cases for USE_POC_AGGREGATOR feature flag."""
+    """Test cases for USE_PYTHON_AGGREGATOR feature flag."""
 
     def test_feature_flag_default_false(self):
         """Test that feature flag defaults to False."""
         # Clear any existing env var
-        if "USE_POC_AGGREGATOR" in os.environ:
-            del os.environ["USE_POC_AGGREGATOR"]
+        if "USE_PYTHON_AGGREGATOR" in os.environ:
+            del os.environ["USE_PYTHON_AGGREGATOR"]
 
         # Re-import to get fresh value
         from masu.processor.ocp import ocp_report_parquet_summary_updater
@@ -161,11 +161,11 @@ class TestPOCFeatureFlag(TestCase):
 
         importlib.reload(ocp_report_parquet_summary_updater)
 
-        self.assertFalse(ocp_report_parquet_summary_updater.USE_POC_AGGREGATOR)
+        self.assertFalse(ocp_report_parquet_summary_updater.USE_PYTHON_AGGREGATOR)
 
     def test_feature_flag_enabled(self):
         """Test that feature flag can be enabled."""
-        os.environ["USE_POC_AGGREGATOR"] = "true"
+        os.environ["USE_PYTHON_AGGREGATOR"] = "true"
 
         # Re-import to get fresh value
         from masu.processor.ocp import ocp_report_parquet_summary_updater
@@ -174,15 +174,15 @@ class TestPOCFeatureFlag(TestCase):
 
         importlib.reload(ocp_report_parquet_summary_updater)
 
-        self.assertTrue(ocp_report_parquet_summary_updater.USE_POC_AGGREGATOR)
+        self.assertTrue(ocp_report_parquet_summary_updater.USE_PYTHON_AGGREGATOR)
 
         # Cleanup
-        del os.environ["USE_POC_AGGREGATOR"]
+        del os.environ["USE_PYTHON_AGGREGATOR"]
 
     def test_feature_flag_case_insensitive(self):
         """Test that feature flag is case insensitive."""
         for value in ["TRUE", "True", "true", "TrUe"]:
-            os.environ["USE_POC_AGGREGATOR"] = value
+            os.environ["USE_PYTHON_AGGREGATOR"] = value
 
             from masu.processor.ocp import ocp_report_parquet_summary_updater
 
@@ -191,11 +191,11 @@ class TestPOCFeatureFlag(TestCase):
             importlib.reload(ocp_report_parquet_summary_updater)
 
             self.assertTrue(
-                ocp_report_parquet_summary_updater.USE_POC_AGGREGATOR, f"Failed for value: {value}"
+                ocp_report_parquet_summary_updater.USE_PYTHON_AGGREGATOR, f"Failed for value: {value}"
             )
 
         # Cleanup
-        del os.environ["USE_POC_AGGREGATOR"]
+        del os.environ["USE_PYTHON_AGGREGATOR"]
 
 
 class TestOCPSummaryUpdaterPOCRouting(TestCase):
@@ -208,7 +208,7 @@ class TestOCPSummaryUpdaterPOCRouting(TestCase):
         self.start_date = date(2025, 10, 1)
         self.end_date = date(2025, 10, 31)
 
-    @patch("masu.processor.ocp.ocp_report_parquet_summary_updater.USE_POC_AGGREGATOR", True)
+    @patch("masu.processor.ocp.ocp_report_parquet_summary_updater.USE_PYTHON_AGGREGATOR", True)
     @patch(
         "masu.processor.ocp.ocp_report_parquet_summary_updater.OCPReportParquetSummaryUpdater._update_summary_tables_poc"
     )
@@ -245,7 +245,7 @@ class TestOCPSummaryUpdaterPOCRouting(TestCase):
         # Verify POC method was called
         mock_poc.assert_called_once()
 
-    @patch("masu.processor.ocp.ocp_report_parquet_summary_updater.USE_POC_AGGREGATOR", False)
+    @patch("masu.processor.ocp.ocp_report_parquet_summary_updater.USE_PYTHON_AGGREGATOR", False)
     @patch(
         "masu.processor.ocp.ocp_report_parquet_summary_updater.OCPReportParquetSummaryUpdater._update_summary_tables_trino"
     )
@@ -294,7 +294,7 @@ class TestOCPAWSSummaryUpdaterPOCRouting(TestCase):
         self.start_date = date(2025, 10, 1)
         self.end_date = date(2025, 10, 31)
 
-    @patch("masu.processor.ocp.ocp_cloud_parquet_summary_updater.USE_POC_AGGREGATOR", True)
+    @patch("masu.processor.ocp.ocp_cloud_parquet_summary_updater.USE_PYTHON_AGGREGATOR", True)
     @patch(
         "masu.processor.ocp.ocp_cloud_parquet_summary_updater.OCPCloudParquetReportSummaryUpdater._update_aws_summary_tables_poc"
     )
@@ -332,7 +332,7 @@ class TestOCPAWSSummaryUpdaterPOCRouting(TestCase):
         mock_poc.assert_called_once()
         mock_trino.assert_not_called()
 
-    @patch("masu.processor.ocp.ocp_cloud_parquet_summary_updater.USE_POC_AGGREGATOR", False)
+    @patch("masu.processor.ocp.ocp_cloud_parquet_summary_updater.USE_PYTHON_AGGREGATOR", False)
     @patch(
         "masu.processor.ocp.ocp_cloud_parquet_summary_updater.OCPCloudParquetReportSummaryUpdater._update_aws_summary_tables_poc"
     )

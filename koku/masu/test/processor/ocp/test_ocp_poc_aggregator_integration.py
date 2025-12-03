@@ -39,7 +39,7 @@ class TestOCPPOCAggregatorIntegration(MasuTestCase):
         with ReportManifestDBAccessor() as manifest_accessor:
             self.manifest = manifest_accessor.get_manifest_by_id(1)
 
-    @patch("masu.processor.ocp.ocp_report_parquet_summary_updater.USE_POC_AGGREGATOR", True)
+    @patch("masu.processor.ocp.ocp_report_parquet_summary_updater.USE_PYTHON_AGGREGATOR", True)
     @patch("masu.processor.parquet.poc_integration.process_ocp_parquet_poc")
     @patch("masu.processor.ocp.ocp_report_parquet_summary_updater.OCPReportDBAccessor")
     @patch("masu.processor.ocp.ocp_report_parquet_summary_updater.schema_context")
@@ -82,7 +82,7 @@ class TestOCPPOCAggregatorIntegration(MasuTestCase):
         self.assertEqual(call_kwargs["year"], self.start_date.year)
         self.assertEqual(call_kwargs["month"], self.start_date.month)
 
-    @patch("masu.processor.ocp.ocp_report_parquet_summary_updater.USE_POC_AGGREGATOR", False)
+    @patch("masu.processor.ocp.ocp_report_parquet_summary_updater.USE_PYTHON_AGGREGATOR", False)
     @patch("masu.processor.ocp.ocp_report_parquet_summary_updater.OCPReportDBAccessor")
     def test_ocp_summary_updater_routes_to_trino_when_disabled(self, mock_accessor):
         """Test that OCP summary updater routes to Trino when POC flag is disabled."""
@@ -107,9 +107,9 @@ class TestOCPPOCAggregatorIntegration(MasuTestCase):
         # Verify Trino path was called
         mock_trino.assert_called_once()
 
-    @patch("masu.processor.ocp.ocp_report_parquet_summary_updater.USE_POC_AGGREGATOR", True)
+    @patch("masu.processor.ocp.ocp_report_parquet_summary_updater.USE_PYTHON_AGGREGATOR", True)
     @patch("masu.processor.parquet.poc_integration.process_ocp_parquet_poc")
-    def test_poc_aggregator_error_handling(self, mock_poc_process):
+    def test_python_aggregator_error_handling(self, mock_poc_process):
         """Test that POC aggregator errors are properly handled."""
         mock_poc_process.side_effect = Exception("POC aggregation failed")
 
@@ -136,7 +136,7 @@ class TestOCPOnAWSPOCAggregatorIntegration(MasuTestCase):
         self.start_date = self.dh.last_month_start.date()
         self.end_date = self.dh.last_month_end.date()
 
-    @patch("masu.processor.ocp.ocp_cloud_parquet_summary_updater.USE_POC_AGGREGATOR", True)
+    @patch("masu.processor.ocp.ocp_cloud_parquet_summary_updater.USE_PYTHON_AGGREGATOR", True)
     @patch("masu.processor.parquet.poc_integration.process_ocp_aws_parquet_poc")
     @patch("masu.processor.ocp.ocp_cloud_parquet_summary_updater.OCPCostModelCostUpdater")
     @patch("masu.processor.ocp.ocp_cloud_parquet_summary_updater.OCPReportDBAccessor")
@@ -182,7 +182,7 @@ class TestOCPOnAWSPOCAggregatorIntegration(MasuTestCase):
         self.assertEqual(call_kwargs["ocp_provider_uuid"], str(self.ocp_provider_uuid))
         self.assertEqual(call_kwargs["aws_provider_uuid"], str(self.aws_provider_uuid))
 
-    @patch("masu.processor.ocp.ocp_cloud_parquet_summary_updater.USE_POC_AGGREGATOR", False)
+    @patch("masu.processor.ocp.ocp_cloud_parquet_summary_updater.USE_PYTHON_AGGREGATOR", False)
     @patch("masu.processor.ocp.ocp_cloud_parquet_summary_updater.OCPCostModelCostUpdater")
     @patch("masu.processor.ocp.ocp_cloud_parquet_summary_updater.OCPReportDBAccessor")
     def test_ocp_aws_summary_updater_routes_to_trino_when_disabled(
@@ -205,7 +205,7 @@ class TestOCPOnAWSPOCAggregatorIntegration(MasuTestCase):
         # Verify Trino path was called
         mock_trino.assert_called_once()
 
-    @patch("masu.processor.ocp.ocp_cloud_parquet_summary_updater.USE_POC_AGGREGATOR", True)
+    @patch("masu.processor.ocp.ocp_cloud_parquet_summary_updater.USE_PYTHON_AGGREGATOR", True)
     @patch("masu.processor.parquet.poc_integration.process_ocp_aws_parquet_poc")
     @patch("masu.processor.ocp.ocp_cloud_parquet_summary_updater.OCPCostModelCostUpdater")
     @patch("masu.processor.ocp.ocp_cloud_parquet_summary_updater.OCPReportDBAccessor")
@@ -237,7 +237,7 @@ class TestOCPOnAWSPOCAggregatorIntegration(MasuTestCase):
 
         self.assertIn("AWS POC aggregation failed", str(context.exception))
 
-    @patch("masu.processor.ocp.ocp_cloud_parquet_summary_updater.USE_POC_AGGREGATOR", True)
+    @patch("masu.processor.ocp.ocp_cloud_parquet_summary_updater.USE_PYTHON_AGGREGATOR", True)
     @patch("masu.processor.ocp.ocp_cloud_parquet_summary_updater.OCPCostModelCostUpdater")
     @patch("masu.processor.ocp.ocp_cloud_parquet_summary_updater.OCPReportDBAccessor")
     def test_azure_still_uses_trino_when_poc_enabled(
