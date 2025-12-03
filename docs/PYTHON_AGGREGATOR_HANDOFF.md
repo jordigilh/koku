@@ -378,6 +378,403 @@ oc exec $POD -n cost-mgmt -c celery-worker -- python -c "from masu.processor.par
 
 ---
 
+---
+
+## 🔍 Additional Questions & Concerns from New Team
+
+**After reviewing the code and answers, I have some follow-up questions:**
+
+### A. Integration Entry Points - Naming Mismatch
+
+**Issue**: The entry point in `ocp_report_parquet_summary_updater.py` line 110 imports:
+```python
+from masu.processor.parquet.poc_integration import process_ocp_parquet_poc
+```
+
+But the actual function in `poc_integration.py` is named `process_ocp_parquet` (line 81), not `process_ocp_parquet_poc`.
+
+**Questions**:
+1. Is this a typo in the entry point file?
+2. Should the function be renamed to `process_ocp_parquet_poc` to match the import?
+3. Or should the import be changed to `process_ocp_parquet`?
+
+**Same issue for OCP-on-AWS**: The entry point likely imports `process_ocp_aws_parquet_poc` but the function is `process_ocp_aws_parquet`.
+
+**✅ ANSWER (from original team)**:
+
+**CONFIRMED BUG!** You found a real issue. I verified:
+- `ocp_report_parquet_summary_updater.py` line 110: imports `process_ocp_parquet_poc`
+- `ocp_cloud_parquet_summary_updater.py` line 190: imports `process_ocp_aws_parquet_poc`
+- But `poc_integration.py` has: `def process_ocp_parquet` (line 81) and `def process_ocp_aws_parquet` (line 216)
+
+**FIX**: Change the imports to match the actual function names:
+```python
+# In ocp_report_parquet_summary_updater.py line 110:
+from masu.processor.parquet.poc_integration import process_ocp_parquet
+# And line 125: call process_ocp_parquet(...)
+
+# In ocp_cloud_parquet_summary_updater.py line 190:
+from masu.processor.parquet.poc_integration import process_ocp_aws_parquet
+# And line 240: call process_ocp_aws_parquet(...)
+```
+
+This was caused by renaming during the "POC → Python Aggregator" refactoring. The function names were updated but the entry points weren't.
+
+### B. Missing Dict Import Analysis
+
+**Good news**: I scanned all 16 files in `python_aggregator/` and **only `aws_data_loader.py` was missing `Dict`**. All other files already have it imported correctly:
+
+✅ Fixed files (already have `Dict`):
+- `aggregator_pod.py` - has `Dict`
+- `utils.py` - has `Dict`
+- `expected_results.py` - has `Dict`
+- `disk_capacity_calculator.py` - has `Dict`
+- `network_cost_handler.py` - has `Dict`
+- `arrow_compute.py` - has `Dict`
+- `tag_matcher.py` - has `Dict`
+- `streaming_processor.py` - has `Dict`
+- `cost_attributor.py` - has `Dict`
+- `db_writer.py` - has `Dict`
+- `streaming_selector.py` - has `Dict`
+
+❌ Still broken:
+- `aws_data_loader.py` - **I JUST FIXED THIS** (added `Dict` to line 16)
+
+**Question**: Can you confirm that `aws_data_loader.py` was the ONLY file with the `Dict` import error? Or did you encounter errors in other files too?
+
+**✅ ANSWER**: Confirmed. `aws_data_loader.py` was the only file. The error chain was:
+1. `aggregator_pod.py` - I fixed during the session (added `Dict`)
+2. `aws_data_loader.py` - You fixed it (the last remaining one)
+
+Your scan is correct. All other files already have `Dict`. Good work!
+
+### C. Integration Functions - Incomplete Implementation
+
+**Issue**: Both integration functions have incomplete lines:
+
+1. `process_ocp_parquet()` line 116:
+```python
+provider_info =
+```
+(Missing the function call - should be `get_ocp_provider_info(...)`)
+
+2. `process_ocp_aws_parquet()` line 256:
+```python
+provider_info =
+```
+(Same issue)
+
+**Questions**:
+1. Are these functions actually incomplete in the code?
+2. Or is this a documentation artifact?
+3. If incomplete, what should the full line be?
+
+Expected:
+```python
+provider_info = get_ocp_provider_info(schema_name, provider_uuid, year, month)
+```
+
+**✅ ANSWER**: FALSE ALARM - The code is complete! I just verified:
+
+```bash
+$ grep -n "provider_info =" koku/masu/processor/parquet/poc_integration.py
+116:        provider_info = get_ocp_provider_info(schema_name, provider_uuid, year, month)
+256:        provider_info = get_ocp_provider_info(schema_name, ocp_provider_uuid, year, month)
+```
+
+The lines are complete. What you saw was likely a truncated view in your editor or grep output. The actual code is correct.
+
+### D. Feature Flag Behavior Clarification
+
+**Observation**: Looking at the entry points:
+
+**OCP-only** (`ocp_report_parquet_summary_updater.py` line 98):
+```python
+if USE_PYTHON_AGGREGATOR:
+    return self._update_summary_tables_poc(start_date, end_date, **kwargs)
+return self._update_summary_tables_trino(start_date, end_date, **kwargs)
+```
+
+**OCP-on-AWS** (`ocp_cloud_parquet_summary_updater.py` line 166):
+```python
+if USE_PYTHON_AGGREGATOR and infra_provider_type in (Provider.PROVIDER_AWS, Provider.PROVIDER_AWS_LOCAL):
+    self._update_aws_summary_tables_poc(...)
+elif infra_provider_type in (Provider.PROVIDER_AWS, Provider.PROVIDER_AWS_LOCAL):
+    self.update_aws_summary_tables(...)  # Trino
+```
+
+**Questions**:
+1. For OCP-on-AWS, the Python Aggregator **only works for AWS**, not Azure/GCP. Is this intentional?
+2. Should we document that `USE_PYTHON_AGGREGATOR=true` only affects OCP-only and OCP-on-AWS, not OCP-on-Azure or OCP-on-GCP?
+3. Is the plan to add Azure/GCP support later?
+
+**✅ ANSWER**:
+
+1. **Yes, intentional.** The POC was scoped to OCP-only and OCP-on-AWS specifically. Azure/GCP were not in scope.
+
+2. **Yes, please document this.** The scope is:
+   - ✅ OCP-only: Works with Python Aggregator
+   - ✅ OCP-on-AWS: Works with Python Aggregator
+   - ❌ OCP-on-Azure: Falls back to Trino
+   - ❌ OCP-on-GCP: Falls back to Trino
+
+3. **Future work.** Azure/GCP support can be added later if needed. The architecture supports it - just need to implement the data loaders and cost attribution logic for those cloud providers.
+
+### E. Testing Strategy - Data Requirements
+
+**Critical question**: For the IQE tests to pass, we need actual data in the cluster:
+
+1. **Does the cluster already have OCP and AWS data loaded?**
+   - If yes, from which providers/sources?
+   - If no, how do we load test data?
+
+2. **Do we need to:**
+   - Upload nise-generated data to MinIO/S3?
+   - Create test providers via API?
+   - Trigger data ingestion via Celery?
+   - Wait for scheduled processing?
+
+3. **What's the typical data flow?**
+   - Source → S3/MinIO → Celery task → Python Aggregator → PostgreSQL → API
+
+4. **Can we test with existing data, or do we need fresh data?**
+
+**✅ ANSWER**:
+
+1. **Yes, data exists!** I verified:
+   ```sql
+   -- Existing providers:
+   OCP Test Provider E2E (OCP)
+   test_cost_ocp_static_cluster_0 (OCP)
+   test_cost_aws_source_basic (AWS-local)
+   ... and more
+   
+   -- Schema: org1234567
+   -- OCP summary table has 2 rows (minimal but exists)
+   ```
+
+2. **IQE tests typically create their own test data** via:
+   - Creating providers via API
+   - Uploading nise-generated data to S3/MinIO
+   - Triggering processing tasks
+   
+   The IQE framework handles this. You don't need to pre-load data.
+
+3. **Data flow is correct**:
+   ```
+   nise → S3/MinIO → download task → parquet → summary task → Python Aggregator → PostgreSQL → API
+   ```
+
+4. **Use IQE to generate fresh data.** The existing data may be stale or from different tests. IQE creates deterministic test data specific to each test scenario.
+
+### F. Rollout Strategy - Gradual vs. All-at-Once
+
+**Question**: Should we:
+
+**Option A - Gradual rollout**:
+1. First deploy with `USE_PYTHON_AGGREGATOR=false` (verify image works)
+2. Then enable on ONE worker (e.g., `koku-celery-worker-summary`)
+3. Test with that worker only
+4. If successful, enable on remaining workers
+
+**Option B - All-at-once**:
+1. Deploy and enable `USE_PYTHON_AGGREGATOR=true` on all workers immediately
+2. Monitor logs for errors
+
+**Which approach do you recommend?**
+
+**✅ ANSWER**: **Option B (all-at-once)** - Here's why:
+
+1. **The feature flag IS the gradual rollout.** If something breaks, just set `USE_PYTHON_AGGREGATOR=false` and it immediately falls back to Trino.
+
+2. **The workers already have the flag enabled.** I set `USE_PYTHON_AGGREGATOR=true` on all summary/OCP workers during the session.
+
+3. **IQE tests need consistent behavior.** If some workers use Python Aggregator and others use Trino, test results would be inconsistent.
+
+4. **Time efficiency.** Option A adds complexity without real safety benefit (the flag already provides safety).
+
+**Recommended approach**:
+1. Fix the bugs (function name mismatch, Dict import)
+2. Rebuild and push image
+3. Restart all workers (they already have the flag set)
+4. Run IQE tests
+5. If tests fail, debug; if they pass, done!
+
+### G. Monitoring & Debugging
+
+**Questions**:
+1. **What logs should I monitor?**
+   - Which pods? (koku-api, celery workers, masu?)
+   - Which log levels? (DEBUG, INFO?)
+   - Specific log patterns to watch for?
+
+2. **How do I know if the Python Aggregator is actually being used?**
+   - Should I see "POC: Using PyArrow aggregator instead of Trino" in logs?
+   - Which pod logs?
+
+3. **If tests fail, what's the debugging workflow?**
+   - Check pod logs?
+   - Check PostgreSQL tables?
+   - Check S3/MinIO data?
+   - All of the above?
+
+**✅ ANSWER**:
+
+1. **Which pods to monitor**:
+   - `koku-celery-worker-summary-*` - This is where aggregation happens
+   - `koku-celery-worker-ocp-*` - OCP-specific processing
+   - Log level: INFO is sufficient, DEBUG for deep troubleshooting
+
+2. **How to verify Python Aggregator is used**:
+   ```bash
+   # Watch celery worker logs
+   oc logs -f deployment/koku-celery-worker-summary -c celery-worker -n cost-mgmt | grep -i "python\|aggregator\|POC"
+   ```
+   Look for messages like:
+   - `"Python Aggregator: Starting OCP processing..."`
+   - `"Python Aggregator: Pod aggregation complete"`
+   - Any message from `poc_integration.py`
+
+3. **Debugging workflow** (in order):
+   1. **Check pod logs** - First stop, look for Python tracebacks
+   2. **Verify imports work** - `oc exec` into pod and test imports
+   3. **Check PostgreSQL** - Verify data was written to summary tables
+   4. **Check S3/MinIO** - Verify parquet files exist (if data ingestion issue)
+   
+   ```bash
+   # Quick debug commands:
+   oc logs deployment/koku-celery-worker-summary -c celery-worker -n cost-mgmt --tail=100
+   oc exec -it postgres-0 -n cost-mgmt -- psql -U postgres -d koku -c "SELECT COUNT(*) FROM org1234567.reporting_ocpusagelineitem_daily_summary;"
+   ```
+
+### H. Performance Expectations
+
+**Question**: You mentioned the POC was "benchmarked favorably against Trino".
+
+1. **Do you have specific numbers?**
+   - Memory usage: Trino vs Python Aggregator
+   - Processing time: Trino vs Python Aggregator
+   - CPU usage?
+
+2. **Should I expect the Python Aggregator to be:**
+   - Faster than Trino?
+   - Same speed?
+   - Slower but uses less memory?
+
+3. **Are there any known performance issues or bottlenecks?**
+
+**✅ ANSWER**:
+
+1. **Benchmark numbers** (from POC repo `docs/benchmarks/`):
+   
+   **OCP-Only** (1M input rows):
+   - Python Aggregator: ~45 seconds, ~800MB peak memory
+   - Compression ratio: 24:1 (1M rows → 42K output rows)
+   
+   **OCP-on-AWS** (100K OCP + 50K AWS rows):
+   - Python Aggregator: ~30 seconds, ~600MB peak memory
+   - Maintains hourly granularity (nearly 1:1 output)
+
+2. **Performance comparison**:
+   - **Memory**: Python Aggregator uses **significantly less** than Trino (which needs separate coordinator + worker pods)
+   - **Speed**: Comparable for typical workloads. Python may be slower for very large datasets but doesn't require Trino infrastructure.
+   - **Main benefit**: Can run in koku pods without separate Trino cluster
+
+3. **Known bottlenecks**:
+   - Label processing can be slow for datasets with many unique labels. The POC has an optional Arrow compute optimization (`POC_USE_ARROW_COMPUTE=true`) for this.
+   - Large datasets benefit from streaming mode (`POC_USE_STREAMING=true`, `POC_CHUNK_SIZE=100000`)
+   - For e2e tests with typical test data sizes, performance should be fine.
+
+### I. Commit Strategy
+
+**Question**: The branch `poc-parquet-integration-rebased` has uncommitted changes (the `Dict` fix I just made).
+
+1. **Should I commit the `Dict` fix before building?**
+2. **What commit message format do you use?**
+3. **Should I push to the branch, or work locally only?**
+4. **Is there a PR/review process, or direct commits to the branch?**
+
+**✅ ANSWER**:
+
+1. **Yes, commit before building.** Keeps changes tracked.
+
+2. **Commit message format** - Simple and descriptive:
+   ```
+   Fix: Add Dict import to aws_data_loader.py
+   Fix: Correct function names in entry point imports
+   ```
+
+3. **Work on the branch, push when ready.** The branch is `poc-parquet-integration-rebased`. No need to create a new branch.
+
+4. **Direct commits for now.** This is an integration branch. Once e2e tests pass, the user will likely create a PR to merge into koku's main branch. For now, commit directly to `poc-parquet-integration-rebased`.
+
+   ```bash
+   git add -A
+   git commit -m "Fix: Add Dict import and correct entry point function names"
+   # Push only after verifying the fixes work
+   ```
+
+---
+
+## 🎯 Updated Action Plan (All Questions Answered!)
+
+1. ✅ **Fix `Dict` import** - DONE (aws_data_loader.py)
+2. ❗ **Fix function name mismatch** - REQUIRED (See Section A answer)
+   - Change imports in `ocp_report_parquet_summary_updater.py` (lines 110, 125)
+   - Change imports in `ocp_cloud_parquet_summary_updater.py` (lines 190, 240)
+3. ~~⏸️ **Fix incomplete `provider_info =` lines**~~ - NOT NEEDED (Code is complete, was truncated view)
+4. 📝 **Commit changes** - Yes, commit before building
+5. 🔨 **Sync to build host and rebuild** - Ready to execute
+6. 🚀 **Deploy strategy** - All-at-once (workers already have flag set)
+7. ✅ **Test data strategy** - IQE handles this automatically
+8. 🧪 **Run IQE tests** - Final step
+
+**Recommended order**:
+```bash
+# 1. Fix function names (in entry point files)
+# 2. Verify all syntax is good
+python3 -m py_compile koku/masu/processor/ocp/ocp_report_parquet_summary_updater.py
+python3 -m py_compile koku/masu/processor/ocp/ocp_cloud_parquet_summary_updater.py
+
+# 3. Commit
+git add -A && git commit -m "Fix: Correct function names in entry point imports"
+
+# 4. Sync and build
+rsync -avz -e "ssh -p 2022" koku/ jgil@localhost:~/koku-build/
+ssh -p 2022 jgil@localhost "cd ~/koku-build && podman build -t quay.io/jordigilh/koku:python-aggregator -f Dockerfile . && podman push quay.io/jordigilh/koku:python-aggregator"
+
+# 5. Restart workers
+oc rollout restart deployment/koku-celery-worker-summary deployment/koku-celery-worker-ocp -n cost-mgmt
+
+# 6. Verify imports work
+POD=$(oc get pods -n cost-mgmt --no-headers | grep "celery-worker-summary-" | grep Running | head -1 | awk '{print $1}')
+oc exec $POD -n cost-mgmt -c celery-worker -- python -c "from masu.processor.parquet.python_aggregator import PodAggregator; print('OK')"
+
+# 7. Run IQE tests
+```
+
+---
+
+## 👍 Ready to Proceed!
+
+**All questions answered above (Sections A-I).** Summary:
+
+| Section | Status | Action Needed |
+|---------|--------|---------------|
+| A. Function name mismatch | ✅ Answered | **FIX REQUIRED** - Change imports in 2 files |
+| B. Dict import | ✅ Answered | Already fixed by you |
+| C. Incomplete lines | ✅ Answered | No action - code is complete |
+| D. Azure/GCP support | ✅ Answered | Document limitation (AWS only) |
+| E. Test data | ✅ Answered | IQE handles it |
+| F. Rollout strategy | ✅ Answered | All-at-once |
+| G. Monitoring | ✅ Answered | Watch celery-worker-summary logs |
+| H. Performance | ✅ Answered | Should be fine for e2e tests |
+| I. Commit strategy | ✅ Answered | Commit to branch, push when ready |
+
+**You can proceed!** The critical fix is Section A (function name mismatch). Once that's fixed, you should be able to build, deploy, and run tests.
+
+---
+
 ## Contact
 
 This work is being done to replace Trino-based processing with Python for on-prem deployments where Trino may not be available or is resource-constrained.
