@@ -20,7 +20,7 @@ This is the first step in the OCP-on-AWS matching pipeline, followed by tag matc
 Complexity: HIGH (8/10)
 """
 
-from typing import List, Set, Tuple
+from typing import Dict, List, Set, Tuple
 
 import pandas as pd
 
