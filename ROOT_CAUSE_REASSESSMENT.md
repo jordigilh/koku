@@ -1,6 +1,6 @@
 # Root Cause Reassessment - 500 Errors in OCP Cost Reports
 
-**Date**: December 3, 2025  
+**Date**: December 3, 2025
 **Status**: REASSESSED - Focus on Python Aggregator Integration
 
 ---
@@ -228,9 +228,9 @@ If base table has data but summary tables don't:
 ```bash
 # Check if there's a SQL function to populate summary tables
 oc exec -n cost-mgmt postgres-0 -- psql -U postgres -d koku -c "
-  SELECT routine_name 
-  FROM information_schema.routines 
-  WHERE routine_schema = 'public' 
+  SELECT routine_name
+  FROM information_schema.routines
+  WHERE routine_schema = 'public'
     AND routine_name LIKE '%summary%'
     AND routine_name LIKE '%ocp%';
 "

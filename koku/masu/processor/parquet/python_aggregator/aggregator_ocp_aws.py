@@ -17,7 +17,7 @@ This aggregator integrates all 6 tested components (100% confidence).
 import os
 import uuid as uuid_lib
 from datetime import datetime
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
