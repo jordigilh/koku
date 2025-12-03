@@ -40,7 +40,7 @@ class TestOCPPOCAggregatorIntegration(MasuTestCase):
             self.manifest = manifest_accessor.get_manifest_by_id(1)
 
     @patch("masu.processor.ocp.ocp_report_parquet_summary_updater.USE_PYTHON_AGGREGATOR", True)
-    @patch("masu.processor.parquet.poc_integration.process_ocp_parquet_poc")
+    @patch("masu.processor.parquet.python_aggregator_integration.process_ocp_parquet_python_aggregator")
     @patch("masu.processor.ocp.ocp_report_parquet_summary_updater.OCPReportDBAccessor")
     @patch("masu.processor.ocp.ocp_report_parquet_summary_updater.schema_context")
     def test_ocp_summary_updater_routes_to_poc(
@@ -108,7 +108,7 @@ class TestOCPPOCAggregatorIntegration(MasuTestCase):
         mock_trino.assert_called_once()
 
     @patch("masu.processor.ocp.ocp_report_parquet_summary_updater.USE_PYTHON_AGGREGATOR", True)
-    @patch("masu.processor.parquet.poc_integration.process_ocp_parquet_poc")
+    @patch("masu.processor.parquet.python_aggregator_integration.process_ocp_parquet_python_aggregator")
     def test_python_aggregator_error_handling(self, mock_poc_process):
         """Test that POC aggregator errors are properly handled."""
         mock_poc_process.side_effect = Exception("POC aggregation failed")
@@ -137,7 +137,7 @@ class TestOCPOnAWSPOCAggregatorIntegration(MasuTestCase):
         self.end_date = self.dh.last_month_end.date()
 
     @patch("masu.processor.ocp.ocp_cloud_parquet_summary_updater.USE_PYTHON_AGGREGATOR", True)
-    @patch("masu.processor.parquet.poc_integration.process_ocp_aws_parquet_poc")
+    @patch("masu.processor.parquet.python_aggregator_integration.process_ocp_aws_parquet_python_aggregator")
     @patch("masu.processor.ocp.ocp_cloud_parquet_summary_updater.OCPCostModelCostUpdater")
     @patch("masu.processor.ocp.ocp_cloud_parquet_summary_updater.OCPReportDBAccessor")
     @patch("masu.processor.ocp.ocp_cloud_parquet_summary_updater.get_cluster_id_from_provider")
@@ -206,7 +206,7 @@ class TestOCPOnAWSPOCAggregatorIntegration(MasuTestCase):
         mock_trino.assert_called_once()
 
     @patch("masu.processor.ocp.ocp_cloud_parquet_summary_updater.USE_PYTHON_AGGREGATOR", True)
-    @patch("masu.processor.parquet.poc_integration.process_ocp_aws_parquet_poc")
+    @patch("masu.processor.parquet.python_aggregator_integration.process_ocp_aws_parquet_python_aggregator")
     @patch("masu.processor.ocp.ocp_cloud_parquet_summary_updater.OCPCostModelCostUpdater")
     @patch("masu.processor.ocp.ocp_cloud_parquet_summary_updater.OCPReportDBAccessor")
     @patch("masu.processor.ocp.ocp_cloud_parquet_summary_updater.get_cluster_id_from_provider")
@@ -272,15 +272,15 @@ class TestPOCCeleryTaskIntegration(MasuTestCase):
         self.start_date = self.dh.last_month_start.date()
         self.end_date = self.dh.last_month_end.date()
 
-    @patch("masu.processor.parquet.poc_integration.process_ocp_parquet_poc")
+    @patch("masu.processor.parquet.python_aggregator_integration.process_ocp_parquet_python_aggregator")
     def test_celery_task_ocp_poc(self, mock_poc_process):
         """Test OCP POC Celery task integration."""
-        from masu.processor.tasks import process_ocp_parquet_poc
+        from masu.processor.tasks import process_ocp_parquet_python_aggregator
 
         mock_poc_process.return_value = {"status": "success", "aggregators": {}}
 
         # Call the task directly (not via .delay() for testing)
-        result = process_ocp_parquet_poc(
+        result = process_ocp_parquet_python_aggregator(
             self.schema_name,
             str(self.ocp_provider_uuid),
             2025,
@@ -291,15 +291,15 @@ class TestPOCCeleryTaskIntegration(MasuTestCase):
         self.assertEqual(result["status"], "success")
         mock_poc_process.assert_called_once()
 
-    @patch("masu.processor.parquet.poc_integration.process_ocp_aws_parquet_poc")
+    @patch("masu.processor.parquet.python_aggregator_integration.process_ocp_aws_parquet_python_aggregator")
     def test_celery_task_ocp_aws_poc(self, mock_poc_process):
         """Test OCP-on-AWS POC Celery task integration."""
-        from masu.processor.tasks import process_ocp_aws_parquet_poc
+        from masu.processor.tasks import process_ocp_aws_parquet_python_aggregator
 
         mock_poc_process.return_value = {"status": "success", "aggregators": {}}
 
         # Call the task directly
-        result = process_ocp_aws_parquet_poc(
+        result = process_ocp_aws_parquet_python_aggregator(
             self.schema_name,
             str(self.ocp_provider_uuid),
             str(self.aws_provider_uuid),
@@ -407,12 +407,12 @@ class TestPOCDataValidation(MasuTestCase):
 class TestPOCPerformanceMetrics(MasuTestCase):
     """Tests that verify POC aggregator reports performance metrics."""
 
-    @patch("masu.processor.parquet.poc_integration.PodAggregator")
-    @patch("masu.processor.parquet.poc_integration.StorageAggregator")
-    @patch("masu.processor.parquet.poc_integration.UnallocatedAggregator")
+    @patch("masu.processor.parquet.python_aggregator_integration.PodAggregator")
+    @patch("masu.processor.parquet.python_aggregator_integration.StorageAggregator")
+    @patch("masu.processor.parquet.python_aggregator_integration.UnallocatedAggregator")
     def test_ocp_poc_returns_metrics(self, mock_unalloc, mock_storage, mock_pod):
         """Test that OCP POC returns processing metrics."""
-        from masu.processor.parquet.poc_integration import process_ocp_parquet_poc
+        from masu.processor.parquet.python_aggregator_integration import process_ocp_parquet
 
         # Setup mocks with metrics
         mock_pod.return_value.run.return_value = {
@@ -429,7 +429,7 @@ class TestPOCPerformanceMetrics(MasuTestCase):
             "processing_time_seconds": 0.5,
         }
 
-        result = process_ocp_parquet_poc(
+        result = process_ocp_parquet_python_aggregator(
             schema_name="org1234567",
             provider_uuid="test-uuid",
             year=2025,
@@ -441,10 +441,10 @@ class TestPOCPerformanceMetrics(MasuTestCase):
         self.assertEqual(result["aggregators"]["pod"]["rows_processed"], 1000)
         self.assertEqual(result["aggregators"]["storage"]["rows_processed"], 500)
 
-    @patch("masu.processor.parquet.poc_integration.OCPAWSAggregator")
+    @patch("masu.processor.parquet.python_aggregator_integration.OCPAWSAggregator")
     def test_ocp_aws_poc_returns_metrics(self, mock_aggregator):
         """Test that OCP-on-AWS POC returns processing metrics."""
-        from masu.processor.parquet.poc_integration import process_ocp_aws_parquet_poc
+        from masu.processor.parquet.python_aggregator_integration import process_ocp_aws_parquet
 
         mock_aggregator.return_value.run.return_value = {
             "rows_processed": 5000,
@@ -454,7 +454,7 @@ class TestPOCPerformanceMetrics(MasuTestCase):
             "processing_time_seconds": 15.7,
         }
 
-        result = process_ocp_aws_parquet_poc(
+        result = process_ocp_aws_parquet_python_aggregator(
             schema_name="org1234567",
             ocp_provider_uuid="ocp-uuid",
             aws_provider_uuid="aws-uuid",

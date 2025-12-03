@@ -13,8 +13,8 @@ from unittest.mock import patch
 from django.test import TestCase
 
 from api.provider.models import Provider
-from masu.processor.parquet.poc_integration import process_ocp_aws_parquet_poc
-from masu.processor.parquet.poc_integration import process_ocp_parquet_poc
+from masu.processor.parquet.python_aggregator_integration import process_ocp_aws_parquet
+from masu.processor.parquet.python_aggregator_integration import process_ocp_parquet
 
 
 class TestPOCIntegration(TestCase):
@@ -32,7 +32,7 @@ class TestPOCIntegration(TestCase):
     @patch("masu.processor.parquet.poc_integration.PodAggregator")
     @patch("masu.processor.parquet.poc_integration.StorageAggregator")
     @patch("masu.processor.parquet.poc_integration.UnallocatedAggregator")
-    def test_process_ocp_parquet_poc_success(self, mock_unalloc, mock_storage, mock_pod):
+    def test_process_ocp_parquet_success(self, mock_unalloc, mock_storage, mock_pod):
         """Test successful OCP parquet processing via POC."""
         # Setup mocks
         mock_pod_instance = MagicMock()
@@ -48,7 +48,7 @@ class TestPOCIntegration(TestCase):
         mock_unalloc.return_value = mock_unalloc_instance
 
         # Execute
-        result = process_ocp_parquet_poc(
+        result = process_ocp_parquet(
             schema_name=self.schema,
             provider_uuid=self.ocp_provider_uuid,
             year=self.year,
@@ -69,7 +69,7 @@ class TestPOCIntegration(TestCase):
         mock_unalloc.assert_called_once()
 
     @patch("masu.processor.parquet.poc_integration.PodAggregator")
-    def test_process_ocp_parquet_poc_failure(self, mock_pod):
+    def test_process_ocp_parquet_failure(self, mock_pod):
         """Test OCP parquet processing handles errors gracefully."""
         # Setup mock to raise exception
         mock_pod_instance = MagicMock()
@@ -77,7 +77,7 @@ class TestPOCIntegration(TestCase):
         mock_pod.return_value = mock_pod_instance
 
         # Execute
-        result = process_ocp_parquet_poc(
+        result = process_ocp_parquet(
             schema_name=self.schema,
             provider_uuid=self.ocp_provider_uuid,
             year=self.year,
@@ -90,7 +90,7 @@ class TestPOCIntegration(TestCase):
         self.assertIn("Test error", result["error"])
 
     @patch("masu.processor.parquet.poc_integration.OCPAWSAggregator")
-    def test_process_ocp_aws_parquet_poc_success(self, mock_ocp_aws):
+    def test_process_ocp_aws_parquet_success(self, mock_ocp_aws):
         """Test successful OCP-on-AWS parquet processing via POC."""
         # Setup mock
         mock_instance = MagicMock()
@@ -104,7 +104,7 @@ class TestPOCIntegration(TestCase):
         mock_ocp_aws.return_value = mock_instance
 
         # Execute
-        result = process_ocp_aws_parquet_poc(
+        result = process_ocp_aws_parquet(
             schema_name=self.schema,
             ocp_provider_uuid=self.ocp_provider_uuid,
             aws_provider_uuid=self.aws_provider_uuid,
@@ -122,7 +122,7 @@ class TestPOCIntegration(TestCase):
         mock_ocp_aws.assert_called_once()
 
     @patch("masu.processor.parquet.poc_integration.OCPAWSAggregator")
-    def test_process_ocp_aws_parquet_poc_failure(self, mock_ocp_aws):
+    def test_process_ocp_aws_parquet_failure(self, mock_ocp_aws):
         """Test OCP-on-AWS parquet processing handles errors gracefully."""
         # Setup mock to raise exception
         mock_instance = MagicMock()
@@ -130,7 +130,7 @@ class TestPOCIntegration(TestCase):
         mock_ocp_aws.return_value = mock_instance
 
         # Execute
-        result = process_ocp_aws_parquet_poc(
+        result = process_ocp_aws_parquet(
             schema_name=self.schema,
             ocp_provider_uuid=self.ocp_provider_uuid,
             aws_provider_uuid=self.aws_provider_uuid,

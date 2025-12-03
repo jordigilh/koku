@@ -187,7 +187,7 @@ class OCPCloudParquetReportSummaryUpdater(PartitionHandlerMixin, OCPCloudUpdater
         This method uses PyArrow-based processing instead of Trino SQL queries.
         Enable with: USE_PYTHON_AGGREGATOR=true
         """
-        from masu.processor.parquet.poc_integration import process_ocp_aws_parquet
+        from masu.processor.parquet.python_aggregator_integration import process_ocp_aws_parquet
 
         if isinstance(start_date, str):
             start_date = parser.parse(start_date).date()

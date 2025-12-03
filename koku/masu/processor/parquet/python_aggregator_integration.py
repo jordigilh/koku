@@ -304,7 +304,7 @@ def process_ocp_aws_parquet(
         rows = writer.write_ocp_aws_summary_data(result_df)
 
         results["aggregators"]["ocp_aws"] = {"rows_written": rows}
-        
+
         # COMPLETION BANNER
         LOG.warning("=" * 100)
         LOG.warning("🐍 PYTHON AGGREGATOR COMPLETE - OCP-ON-AWS")
