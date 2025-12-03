@@ -1,6 +1,6 @@
 # ACTUAL Root Cause - Python Aggregator Import Error
 
-**Date**: December 3, 2025  
+**Date**: December 3, 2025
 **Status**: ✅ ROOT CAUSE IDENTIFIED AND FIXED
 
 ---
@@ -92,7 +92,7 @@ from typing import Dict, List, Set, Tuple  # ✅ Added Dict
 7. API queries empty tables
       ↓
 8. PostgreSQL error: "column does not exist"
-      ↓  
+      ↓
 9. API returns 500 to client
       ↓
 10. IQE tests fail

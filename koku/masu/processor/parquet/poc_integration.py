@@ -149,7 +149,8 @@ def process_ocp_parquet(
         )
 
         # Calculate node capacity from pod usage
-        node_capacity_df = pod_agg._calculate_node_capacity(pod_usage_df)
+        from .python_aggregator.aggregator_pod import calculate_node_capacity
+        node_capacity_df, _ = calculate_node_capacity(pod_usage_df)
 
         # Run pod aggregation
         pod_result_df = pod_agg.aggregate(
