@@ -104,10 +104,13 @@ def process_ocp_parquet(
     from .python_aggregator.db_writer import DatabaseWriter
     from .python_aggregator.parquet_reader import ParquetReader
 
-    LOG.info(
-        f"Python Aggregator: Starting OCP processing for {schema_name}, "
-        f"provider={provider_uuid}, period={year}-{month:02d}"
-    )
+    # UNMISTAKABLE BANNER: Python Aggregator is running (not Trino!)
+    LOG.warning("=" * 100)
+    LOG.warning("🐍 PYTHON AGGREGATOR ACTIVATED - TRINO BYPASSED")
+    LOG.warning(f"   Processing OCP-ONLY: {schema_name}")
+    LOG.warning(f"   Provider: {provider_uuid}")
+    LOG.warning(f"   Period: {year}-{month:02d}")
+    LOG.warning("=" * 100)
 
     results = {"status": "success", "aggregators": {}}
 
@@ -206,7 +209,19 @@ def process_ocp_parquet(
         results["aggregators"]["unallocated"] = {"rows_written": unalloc_rows}
         LOG.info(f"Python Aggregator: Unallocated aggregation complete: {unalloc_rows} rows")
 
+        # COMPLETION BANNER
+        total_rows = pod_rows + storage_rows + unalloc_rows
+        LOG.warning("=" * 100)
+        LOG.warning("🐍 PYTHON AGGREGATOR COMPLETE - OCP-ONLY")
+        LOG.warning(f"   Total rows written: {total_rows}")
+        LOG.warning(f"   Pod: {pod_rows}, Storage: {storage_rows}, Unallocated: {unalloc_rows}")
+        LOG.warning("=" * 100)
+
     except Exception as e:
+        LOG.error("=" * 100)
+        LOG.error("🐍 PYTHON AGGREGATOR FAILED - OCP-ONLY")
+        LOG.error(f"   Error: {e}")
+        LOG.error("=" * 100)
         LOG.error(f"Python Aggregator: OCP aggregation failed: {e}", exc_info=True)
         results["status"] = "error"
         results["error"] = str(e)
@@ -245,10 +260,14 @@ def process_ocp_aws_parquet(
     from .python_aggregator import OCPAWSAggregator
     from .python_aggregator.db_writer import DatabaseWriter
 
-    LOG.info(
-        f"Python Aggregator: Starting OCP-on-AWS processing for {schema_name}, "
-        f"ocp={ocp_provider_uuid}, aws={aws_provider_uuid}, period={year}-{month:02d}"
-    )
+    # UNMISTAKABLE BANNER: Python Aggregator is running (not Trino!)
+    LOG.warning("=" * 100)
+    LOG.warning("🐍 PYTHON AGGREGATOR ACTIVATED - TRINO BYPASSED")
+    LOG.warning(f"   Processing OCP-ON-AWS: {schema_name}")
+    LOG.warning(f"   OCP Provider: {ocp_provider_uuid}")
+    LOG.warning(f"   AWS Provider: {aws_provider_uuid}")
+    LOG.warning(f"   Period: {year}-{month:02d}")
+    LOG.warning("=" * 100)
 
     results = {"status": "success", "aggregators": {}}
 
@@ -285,9 +304,19 @@ def process_ocp_aws_parquet(
         rows = writer.write_ocp_aws_summary_data(result_df)
 
         results["aggregators"]["ocp_aws"] = {"rows_written": rows}
-        LOG.info(f"Python Aggregator: OCP-on-AWS aggregation complete: {rows} rows")
+        
+        # COMPLETION BANNER
+        LOG.warning("=" * 100)
+        LOG.warning("🐍 PYTHON AGGREGATOR COMPLETE - OCP-ON-AWS")
+        LOG.warning(f"   Total rows written: {rows}")
+        LOG.warning(f"   Schema: {schema_name}")
+        LOG.warning("=" * 100)
 
     except Exception as e:
+        LOG.error("=" * 100)
+        LOG.error("🐍 PYTHON AGGREGATOR FAILED - OCP-ON-AWS")
+        LOG.error(f"   Error: {e}")
+        LOG.error("=" * 100)
         LOG.error(f"Python Aggregator: OCP-on-AWS aggregation failed: {e}", exc_info=True)
         results["status"] = "error"
         results["error"] = str(e)
