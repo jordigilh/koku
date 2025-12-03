@@ -7,53 +7,33 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
-import structlog
 
 
 def setup_logging(level: str = "INFO", log_format: str = "console"):
-    """Set up structured logging.
+    """Set up logging.
 
     Args:
         level: Logging level (DEBUG, INFO, WARNING, ERROR)
-        log_format: Format type ("console" or "json")
+        log_format: Format type ("console" or "json") - json not fully supported
     """
     log_level = getattr(logging, level.upper(), logging.INFO)
 
-    if log_format == "json":
-        processors = [
-            structlog.processors.TimeStamper(fmt="iso"),
-            structlog.stdlib.add_log_level,
-            structlog.processors.JSONRenderer(),
-        ]
-    else:
-        processors = [
-            structlog.stdlib.add_log_level,
-            structlog.dev.ConsoleRenderer(colors=True),
-        ]
-
-    structlog.configure(
-        processors=processors,
-        context_class=dict,
-        logger_factory=structlog.stdlib.LoggerFactory(),
-        cache_logger_on_first_use=True,
-    )
-
     logging.basicConfig(
-        format="%(message)s",
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         level=log_level,
     )
 
 
-def get_logger(name: str) -> structlog.BoundLogger:
-    """Get a structured logger instance.
+def get_logger(name: str) -> logging.Logger:
+    """Get a logger instance.
 
     Args:
         name: Logger name
 
     Returns:
-        Structured logger
+        Logger instance
     """
-    return structlog.get_logger(name)
+    return logging.getLogger(name)
 
 
 def parse_json_labels(labels_str: Optional[str]) -> Dict[str, str]:
@@ -295,7 +275,7 @@ def round_decimal(value: float, precision: int = 9) -> Decimal:
 class PerformanceTimer:
     """Context manager for timing code execution."""
 
-    def __init__(self, name: str, logger: Optional[structlog.BoundLogger] = None):
+    def __init__(self, name: str, logger: Optional[logging.Logger] = None):
         """Initialize timer.
 
         Args:
