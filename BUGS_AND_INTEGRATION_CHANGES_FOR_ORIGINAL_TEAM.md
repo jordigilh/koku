@@ -1535,9 +1535,90 @@ Both files were added in the **same commit**, but they're **inconsistent**. This
 2. Someone modified `parquet_reader.py` during Koku integration (shortened method names)
 3. But forgot to update `aggregator_ocp_aws.py` to match
 
-**Fix Applied In Commit:** `790374e0` (adapted `aggregator_ocp_aws.py` to use Koku's method names)
+**Fix Applied In Commit:** `f42e3aa8` (added `_line_items` wrapper methods to `parquet_reader.py` for POC compatibility)
 
 **No fix needed in POC repo** - the standalone POC is internally consistent.
+
+---
+
+## 📝 TECHNICAL DEBT - ACTION REQUIRED BY POC TEAM
+
+### TD-1: Logging Format Migration (REQUIRED)
+
+**Priority**: 🔴 HIGH  
+**Impact**: Code maintainability and Koku standards compliance  
+**Owner**: POC Team
+
+**Current State:**
+The POC code uses structured logging with keyword arguments:
+```python
+self.logger.info("Message", key1=value1, key2=value2)
+```
+
+This is incompatible with standard Python loggers. A **temporary workaround** has been implemented in `utils.py`:
+
+```python
+class KwargsLoggingAdapter(logging.LoggerAdapter):
+    """Logger adapter that converts kwargs to message string.
+    
+    TEMPORARY WORKAROUND - This is technical debt!
+    """
+    def process(self, msg, kwargs):
+        # Convert kwargs to f-string format
+        extra_kwargs = {k: v for k, v in kwargs.items() if k not in standard_keys}
+        if extra_kwargs:
+            extra_str = ", ".join(f"{k}={v}" for k, v in extra_kwargs.items())
+            msg = f"{msg} ({extra_str})"
+        return msg, kwargs
+```
+
+**Required Migration:**
+The POC team should migrate all logging calls to use Koku's standard format:
+
+```python
+# BEFORE (POC format - kwargs):
+self.logger.info("Processing chunk", rows=len(df), chunk_idx=idx)
+
+# AFTER (Koku format - f-string):
+self.logger.info(f"Processing chunk (rows={len(df)}, chunk_idx={idx})")
+
+# OR use Koku's log_json utility:
+from api.common import log_json
+LOG.info(log_json(msg="Processing chunk", rows=len(df), chunk_idx=idx))
+```
+
+**Files to Update:**
+1. `aggregator_pod.py` - ~10 logging calls
+2. `aggregator_storage.py` - ~8 logging calls
+3. `aggregator_ocp_aws.py` - ~15 logging calls
+4. `aggregator_unallocated.py` - ~5 logging calls
+5. `aws_data_loader.py` - ~10 logging calls
+6. `parquet_reader.py` - ~5 logging calls
+7. `streaming_processor.py` - ~3 logging calls
+8. `arrow_compute.py` - ~2 logging calls
+9. `network_cost_handler.py` - ~2 logging calls
+
+**Once Migration Complete:**
+Remove the `KwargsLoggingAdapter` workaround from `utils.py` and revert `get_logger()` to return a standard `logging.Logger`.
+
+**Deadline**: Before production deployment
+
+---
+
+### TD-2: Configuration Consolidation (OPTIONAL)
+
+**Priority**: 🟡 MEDIUM  
+**Impact**: Standardization with Koku patterns
+
+The POC uses environment variables with `POC_` prefix:
+- `POC_USE_CATEGORICAL`
+- `POC_COLUMN_FILTERING`
+- `POC_PARALLEL_READERS`
+- `POC_USE_STREAMING`
+- `POC_CHUNK_SIZE`
+- etc.
+
+Consider migrating these to Django settings for consistency with Koku patterns.
 
 ---
 

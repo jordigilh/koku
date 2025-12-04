@@ -356,18 +356,13 @@ class AWSDataLoader:
 
             if not files:
                 self.logger.warning(
-                    "No AWS CUR data found for the given period",
-                    provider_uuid=provider_uuid,
-                    year=year,
-                    month=month,
-                    path=s3_prefix,
+                    f"No AWS CUR data found for the given period "
+                    f"(provider={provider_uuid}, year={year}, month={month}, path={s3_prefix})"
                 )
                 return pd.DataFrame() if not streaming else iter([])
 
             self.logger.info(
-                f"Found {len(files)} AWS CUR Parquet files",
-                count=len(files),
-                provider_uuid=provider_uuid,
+                f"Found {len(files)} AWS CUR Parquet files (provider={provider_uuid})"
             )
 
             # Get optimal columns for filtering
@@ -378,7 +373,7 @@ class AWSDataLoader:
 
             # Read files (streaming or standard)
             if streaming:
-                self.logger.info("Using streaming mode for AWS CUR", chunk_size=chunk_size)
+                self.logger.info(f"Using streaming mode for AWS CUR (chunk_size={chunk_size})")
 
                 def stream_all_files():
                     """Stream all AWS CUR files chunk by chunk."""

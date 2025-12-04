@@ -24,16 +24,44 @@ def setup_logging(level: str = "INFO", log_format: str = "console"):
     )
 
 
-def get_logger(name: str) -> logging.Logger:
-    """Get a logger instance.
+class KwargsLoggingAdapter(logging.LoggerAdapter):
+    """Logger adapter that converts kwargs to message string.
+
+    The POC code uses structured logging with kwargs like:
+        logger.info("Message", key1=value1, key2=value2)
+
+    Standard Python loggers don't support this. This adapter
+    converts kwargs to a formatted string appended to the message.
+    """
+
+    def process(self, msg, kwargs):
+        # Extract extra kwargs that aren't standard logging kwargs
+        standard_keys = {'exc_info', 'stack_info', 'stacklevel', 'extra'}
+        extra_kwargs = {k: v for k, v in kwargs.items() if k not in standard_keys}
+
+        # Remove non-standard kwargs from kwargs dict
+        for k in extra_kwargs:
+            kwargs.pop(k, None)
+
+        # Append extra kwargs to message
+        if extra_kwargs:
+            extra_str = ", ".join(f"{k}={v}" for k, v in extra_kwargs.items())
+            msg = f"{msg} ({extra_str})"
+
+        return msg, kwargs
+
+
+def get_logger(name: str) -> KwargsLoggingAdapter:
+    """Get a logger instance that supports kwargs in log messages.
 
     Args:
         name: Logger name
 
     Returns:
-        Logger instance
+        KwargsLoggingAdapter that converts kwargs to message strings
     """
-    return logging.getLogger(name)
+    logger = logging.getLogger(name)
+    return KwargsLoggingAdapter(logger, {})
 
 
 def parse_json_labels(labels_str: Optional[str]) -> Dict[str, str]:
