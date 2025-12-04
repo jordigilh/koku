@@ -232,11 +232,16 @@ Based on our testing with Trino/Hive scaled to zero and `USE_PYTHON_AGGREGATOR=t
 - API serves the aggregated data
 - All processing completed without Trino/Hive
 
-### What Failed (9 tests) - Not Aggregator Issues
+### What Failed - Not Aggregator Issues
 
-**5 tests failed due to `RETAIN_NUM_MONTHS` configuration:**
+#### OCP-Only Failures (3 tests)
 
-Our environment uses `RETAIN_NUM_MONTHS=3`. The IQE tests include "last-90-days" queries that request `start_date=2025-09-05`, but the API only allows dates from `2025-10-01` onwards (3 months back from current month).
+All 3 failures are "last-90-days" date range tests:
+- `test_api_ocp_all_endpoint_date_range_monthly[cost-last-90-days]`
+- `test_api_ocp_all_validate_items_date_range_daily[network-last-90-days]`
+- `test_api_ocp_all_validate_items_date_range_monthly[memory-last-90-days]`
+
+**Cause**: Our environment uses `RETAIN_NUM_MONTHS=3`. These tests request `start_date=2025-09-05` (90 days back), but the API only allows dates from `2025-10-01` onwards.
 
 ```
 Error: {'start_date': ['Parameter start_date must be from 2025-10-01 to 2025-12-05']}
@@ -244,9 +249,11 @@ Error: {'start_date': ['Parameter start_date must be from 2025-10-01 to 2025-12-
 
 This is Koku's API date validation enforcing the retention policy - not a Python Aggregator issue. If your environment uses `RETAIN_NUM_MONTHS >= 4`, these tests would pass.
 
-**4 tests failed due to test regex mismatch:**
+#### OCP-on-AWS Failures (6 tests)
 
-These are negative tests that check error message format. The test regex doesn't match the API's array response format. This is a test assertion issue, not an API or aggregator bug.
+**2 tests** failed due to the same `RETAIN_NUM_MONTHS` date range validation as OCP-only.
+
+**4 tests** failed due to test regex mismatch - these are negative tests that check error message format. The test regex doesn't match the API's array response format. This is a test assertion issue, not an API or aggregator bug.
 
 ---
 
