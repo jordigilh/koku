@@ -1179,7 +1179,13 @@ def validate_columns_against_schema(df: pd.DataFrame, table_name: str, cursor) -
     return list(df_columns & db_columns)
 ```
 
-**Fix Applied In Commit:** `235c2ae8`
+**Fix Applied In Commit:** `235c2ae8` (Koku), `d769912` (POC)
+
+**POC Repo Fix:**
+The original POC repo has also been updated with:
+- Schema validation in `db_writer.py` (`validate_dataframe_columns()`)
+- Validation script: `scripts/validate_koku_schema.py`
+- Both Bug #7 and Bug #8 fixes in aggregator files
 
 ---
 
