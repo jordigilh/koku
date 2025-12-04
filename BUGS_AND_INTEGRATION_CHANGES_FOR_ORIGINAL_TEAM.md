@@ -1464,3 +1464,75 @@ def __exit__(self, exc_type, exc_val, exc_tb):
 
 ---
 
+### Bug #15: OCP-AWS Aggregator Calls Non-Existent ParquetReader Methods
+
+**Severity**: ⚠️⚠️⚠️ **CRITICAL - BLOCKS OCP-ON-AWS COMPLETELY**
+**Impact**: OCP-on-AWS aggregation cannot run at all
+**Discovery**: December 4, 2025
+
+**File**: `koku/masu/processor/parquet/python_aggregator/aggregator_ocp_aws.py`
+**Lines**: ~249-262, ~280-286, ~465-487
+
+**Error Message:**
+```
+AttributeError: 'ParquetReader' object has no attribute 'read_pod_usage_line_items'
+```
+
+**Root Cause:**
+Internal API mismatch within the POC codebase. `aggregator_ocp_aws.py` calls methods that don't exist in `parquet_reader.py`:
+
+| Called Method (WRONG)                | Actual Method (CORRECT)      |
+|-------------------------------------|------------------------------|
+| `read_pod_usage_line_items()`       | `read_pod_usage()`           |
+| `read_storage_usage_line_items()`   | `read_storage_usage()`       |
+| `read_node_labels_line_items()`     | `read_node_labels()`         |
+| `read_namespace_labels_line_items()` | `read_namespace_labels()`   |
+
+Additionally, the API signatures differ:
+- **Wrong**: `(provider_uuid, year, month, streaming)`
+- **Correct**: `(provider_uuid, start_date, streaming, chunk_size)`
+
+**Original Code:**
+```python
+pod_usage = self.parquet_reader.read_pod_usage_line_items(
+    provider_uuid=self.provider_uuid,
+    year=year,
+    month=month,
+    streaming=False,
+)
+```
+
+**Fixed Code:**
+```python
+from datetime import date
+start_date = date(year, month, 1)
+pod_usage = self.parquet_reader.read_pod_usage(
+    provider_uuid=self.provider_uuid,
+    start_date=start_date,
+    streaming=False,
+)
+```
+
+**Why This Happened:**
+- Both files are part of the POC codebase
+- Method names weren't kept consistent between modules
+- Likely a refactor in `parquet_reader.py` that wasn't propagated to `aggregator_ocp_aws.py`
+
+**Fix Applied In Commit:** `790374e0`
+
+**POC Team Analysis:**
+> ✅ **This is NOT a bug in the standalone POC.** The POC's internal API is consistent:
+> 
+> | Method Called in `aggregator_ocp_aws.py` | Exists in `parquet_reader.py`? |
+> |------------------------------------------|-------------------------------|
+> | `read_pod_usage_line_items()` | ✅ YES |
+> | `read_storage_usage_line_items()` | ✅ YES |
+> | `read_node_labels_line_items()` | ✅ YES |
+> | `read_namespace_labels_line_items()` | ✅ YES |
+> 
+> **Root Cause:** During Koku integration, `parquet_reader.py` was refactored with new method names (`read_pod_usage()` instead of `read_pod_usage_line_items()`), but `aggregator_ocp_aws.py` wasn't updated to match.
+> 
+> **No fix needed in POC repo** - the standalone POC is internally consistent.
+
+---
+
