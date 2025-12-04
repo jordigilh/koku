@@ -838,9 +838,9 @@ class PodAggregator:
         df["data_source"] = "Pod"
         df["usage_end"] = df["usage_start"]  # Same as usage_start for daily
 
-        # Pod column (NULL for aggregated data - individual pod names lost during grouping)
-        if "pod" not in df.columns:
-            df["pod"] = None
+        # NOTE: Database uses "resource_id" column, not "pod"
+        # The aggregator already has "resource_id" from the grouping/processing
+        # No need to set "pod" column separately
 
         # Storage columns (NULL for pod data)
         df["persistentvolumeclaim"] = None
@@ -867,6 +867,7 @@ class PodAggregator:
         # Select columns in correct order (PostgreSQL schema - no partition columns)
         # NOTE: Partition columns (source, year, month, day) are for Hive/Trino only, not PostgreSQL
         # all_labels added per Trino SQL lines 651-654
+        # NOTE: Database uses "resource_id" column (not "pod")
         output_columns = [
             "uuid",
             "report_period_id",
@@ -877,8 +878,7 @@ class PodAggregator:
             "usage_end",
             "namespace",
             "node",
-            "pod",
-            "resource_id",
+            "resource_id",  # Database column name (not "pod")
             "pod_labels",
             "pod_usage_cpu_core_hours",
             "pod_request_cpu_core_hours",

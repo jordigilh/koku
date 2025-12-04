@@ -645,7 +645,8 @@ class StorageAggregator:
         # Convert to object type first if categorical to avoid fillna issues
         node_col = df["node"].astype(object) if hasattr(df["node"].dtype, "categories") else df["node"]
         result["node"] = node_col.fillna("")  # Replace NaN with empty string
-        result["pod"] = None  # NULL for storage rows
+        # NOTE: Database uses "resource_id" column, not "pod"
+        # result["pod"] = None  # ❌ REMOVED - column doesn't exist in database
         resource_id_col = (
             df["resource_id"].astype(object) if hasattr(df["resource_id"].dtype, "categories") else df["resource_id"]
         )
@@ -723,8 +724,7 @@ class StorageAggregator:
                 "data_source",
                 "namespace",
                 "node",
-                "pod",
-                "resource_id",
+                "resource_id",  # Database column name (not "pod")
                 "persistentvolumeclaim",
                 "persistentvolume",
                 "storageclass",

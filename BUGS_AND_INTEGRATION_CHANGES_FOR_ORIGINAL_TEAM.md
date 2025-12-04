@@ -15,9 +15,9 @@ During integration testing in a real Koku cluster, we found **6 bugs** and made 
 
 ---
 
-## 🐛 BUGS FOUND (6 Total)
+## 🐛 BUGS FOUND (7 Total)
 
-All bugs were **import-related** or **function call** issues that only appeared during end-to-end testing in a real cluster.
+All bugs were **import-related**, **function call**, or **column name mapping** issues that only appeared during end-to-end testing in a real cluster.
 
 ---
 
@@ -927,3 +927,120 @@ All bugs have been fixed, and the aggregator is **production-ready** with `USE_P
 **Date**: December 3, 2025
 **Handoff Team**: Successfully integrated and validated
 **Next Step**: Original team can apply fixes to their repository
+
+### Bug #7: Incorrect Column Name Mapping - "pod" vs "resource_id" 🚨 CRITICAL
+
+**Severity**: ⚠️⚠️⚠️ **CRITICAL - BLOCKS ALL DATA WRITES**  
+**Impact**: Prevents Python Aggregator from writing any data to database  
+**Discovery**: December 3, 2025 - During live execution testing with actual Koku cluster
+
+**File**: `koku/masu/processor/parquet/python_aggregator/aggregator_pod.py` (primary), `aggregator_storage.py`, `aggregator_unallocated.py`  
+**Likely Lines**: Wherever DataFrames are constructed with column names
+
+**Error Message:**
+```
+psycopg2.errors.UndefinedColumn: column "pod" of relation "reporting_ocpusagelineitem_daily_summary" does not exist
+LINE 1: ..._source, usage_start, usage_end, namespace, node, pod, resou...
+                                                             ^
+```
+
+**Root Cause:**
+The Python Aggregator is generating a DataFrame with a column named "pod", which it then tries to write to the database. However, the Koku database table `reporting_ocpusagelineitem_daily_summary` does not have a "pod" column. The correct column name is **"resource_id"**.
+
+**Database Schema (Actual Koku Table):**
+```sql
+\d org1234567.reporting_ocpusagelineitem_daily_summary
+
+Columns:
+- uuid
+- cluster_id
+- cluster_alias
+- data_source
+- namespace
+- node
+- resource_id          ← ✅ THIS EXISTS (correct column name)
+- usage_start
+- usage_end
+- pod_labels           ← Note: "pod_labels" exists, but not "pod"
+- pod_usage_cpu_core_hours
+... (58 total columns)
+
+❌ NO "pod" column exists!
+```
+
+**Complete Log Output Showing the Bug:**
+```
+[2025-12-03 20:59:06,907] WARNING 🐍 PYTHON AGGREGATOR ACTIVATED - TRINO BYPASSED
+[2025-12-03 20:59:06,907] WARNING    Processing OCP-ONLY: org1234567
+
+[2025-12-03 20:59:08,573] INFO Found 1 Parquet files
+[2025-12-03 20:59:08,696] INFO Loaded 1 rows from pod_usage.2025-11-01.1.0_daily_0.parquet
+[2025-12-03 20:59:09,063] INFO Loaded 1 rows from node_labels.2025-11-01.1.0_daily_0.parquet
+[2025-12-03 20:59:09,216] INFO Loaded 1 rows from namespace_labels.2025-11-01.1.0_daily_0.parquet
+
+[2025-12-03 20:59:09,600] INFO Writing 1 rows to org1234567.reporting_ocpusagelineitem_daily_summary
+
+[2025-12-03 20:59:09,605] ERROR Failed to write: column "pod" of relation does not exist
+```
+
+**Fix Required:**
+
+Search for DataFrame construction that creates a "pod" column and rename it to "resource_id".
+
+**Likely Location (Example):**
+```python
+# BEFORE (incorrect) - probably in aggregator_pod.py:
+result_df = pd.DataFrame({
+    'uuid': uuids,
+    'cluster_id': cluster_ids,
+    'namespace': namespaces,
+    'node': nodes,
+    'pod': pod_names,  # ❌ WRONG - this column doesn't exist in DB
+    'usage_start': usage_starts,
+    ...
+})
+
+# AFTER (correct):
+result_df = pd.DataFrame({
+    'uuid': uuids,
+    'cluster_id': cluster_ids,
+    'namespace': namespaces,
+    'node': nodes,
+    'resource_id': pod_names,  # ✅ CORRECT - matches DB column
+    'usage_start': usage_starts,
+    ...
+})
+```
+
+**Files to Check:**
+1. `aggregator_pod.py` - Most likely location
+2. `aggregator_storage.py` - May also use "pod" column
+3. `aggregator_unallocated.py` - May reference "pod" column
+4. `db_writer.py` - Check if there's explicit column mapping
+
+**How To Test the Fix:**
+```python
+# In Django shell or pod:
+from masu.processor.parquet.python_aggregator_integration import process_ocp_parquet
+result = process_ocp_parquet(
+    schema_name='org1234567',
+    provider_uuid='<valid-uuid>',
+    year=2025,
+    month=11
+)
+
+# Should see success:
+# [INFO] Writing X rows to org1234567.reporting_ocpusagelineitem_daily_summary
+# [WARNING] 🐍 PYTHON AGGREGATOR COMPLETE - OCP-ONLY
+# Result: {'status': 'success', 'aggregators': {'pod': {'rows_written': X}}}
+```
+
+**Why This Bug Wasn't Caught:**
+- Unit tests likely mock the database write
+- Standalone POC may use different database schema
+- Only appears during real Koku integration
+
+**Fix Applied In Commit:** `<pending>`
+
+---
+
