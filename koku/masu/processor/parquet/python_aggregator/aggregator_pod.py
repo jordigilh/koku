@@ -851,7 +851,7 @@ class PodAggregator:
         df["persistentvolumeclaim_capacity_gigabyte_months"] = None
         df["volume_request_storage_gigabyte_months"] = None
         df["persistentvolumeclaim_usage_gigabyte_months"] = None
-        df["csi_volume_handle"] = None
+        # NOTE: csi_volume_handle column doesn't exist in Koku database schema - removed
 
         # all_labels = merge(pod_labels, volume_labels) - Trino SQL lines 651-654
         # For Pod data, volume_labels is NULL, so all_labels = pod_labels
@@ -905,7 +905,7 @@ class PodAggregator:
             "persistentvolumeclaim_usage_gigabyte_months",
             "source_uuid",
             "infrastructure_usage_cost",
-            "csi_volume_handle",
+            # NOTE: csi_volume_handle removed - doesn't exist in Koku database
             "cost_category_id",
         ]
 

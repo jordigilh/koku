@@ -669,7 +669,7 @@ class StorageAggregator:
         result["persistentvolumeclaim_capacity_gigabyte_months"] = df["persistentvolumeclaim_capacity_gigabyte_months"]
         result["volume_request_storage_gigabyte_months"] = df["volume_request_storage_gigabyte_months"]
         result["persistentvolumeclaim_usage_gigabyte_months"] = df["persistentvolumeclaim_usage_gigabyte_months"]
-        result["csi_volume_handle"] = df["csi_volume_handle"].fillna("")
+        # NOTE: csi_volume_handle removed - doesn't exist in Koku database
 
         # CPU/Memory columns (NULL for storage)
         result["pod_usage_cpu_core_hours"] = None
@@ -734,7 +734,7 @@ class StorageAggregator:
                 "persistentvolumeclaim_capacity_gigabyte_months",
                 "volume_request_storage_gigabyte_months",
                 "persistentvolumeclaim_usage_gigabyte_months",
-                "csi_volume_handle",
+                # NOTE: csi_volume_handle removed - doesn't exist in Koku database
                 "pod_usage_cpu_core_hours",
                 "pod_request_cpu_core_hours",
                 "pod_effective_usage_cpu_core_hours",

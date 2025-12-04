@@ -930,11 +930,11 @@ All bugs have been fixed, and the aggregator is **production-ready** with `USE_P
 
 ### Bug #7: Incorrect Column Name Mapping - "pod" vs "resource_id" 🚨 CRITICAL
 
-**Severity**: ⚠️⚠️⚠️ **CRITICAL - BLOCKS ALL DATA WRITES**  
-**Impact**: Prevents Python Aggregator from writing any data to database  
+**Severity**: ⚠️⚠️⚠️ **CRITICAL - BLOCKS ALL DATA WRITES**
+**Impact**: Prevents Python Aggregator from writing any data to database
 **Discovery**: December 3, 2025 - During live execution testing with actual Koku cluster
 
-**File**: `koku/masu/processor/parquet/python_aggregator/aggregator_pod.py` (primary), `aggregator_storage.py`, `aggregator_unallocated.py`  
+**File**: `koku/masu/processor/parquet/python_aggregator/aggregator_pod.py` (primary), `aggregator_storage.py`, `aggregator_unallocated.py`
 **Likely Lines**: Wherever DataFrames are constructed with column names
 
 **Error Message:**
