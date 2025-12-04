@@ -246,19 +246,18 @@ class OCPAWSAggregator:
             self.logger.info("Phase 1: Loading reference data (labels, AWS)")
 
             # Load labels (small, keep in memory)
-            from datetime import date
-            start_date = date(year, month, 1)
-            node_labels = self.parquet_reader.read_node_labels(
-                provider_uuid=self.provider_uuid, start_date=start_date
+            node_labels = self.parquet_reader.read_node_labels_line_items(
+                provider_uuid=self.provider_uuid, year=year, month=month
             )
-            namespace_labels = self.parquet_reader.read_namespace_labels(
-                provider_uuid=self.provider_uuid, start_date=start_date
+            namespace_labels = self.parquet_reader.read_namespace_labels_line_items(
+                provider_uuid=self.provider_uuid, year=year, month=month
             )
 
             # Load storage usage (needed for disk capacity calculation)
-            storage_usage = self.parquet_reader.read_storage_usage(
+            storage_usage = self.parquet_reader.read_storage_usage_line_items(
                 provider_uuid=self.provider_uuid,
-                start_date=start_date,
+                year=year,
+                month=month,
                 streaming=False,
             )
             if not storage_usage.empty:
@@ -278,11 +277,10 @@ class OCPAWSAggregator:
 
             # Phase 3: Get OCP pod usage as chunks (streaming)
             self.logger.info("Phase 3: Reading OCP pod usage in chunks")
-            from datetime import date
-            start_date = date(year, month, 1)
-            pod_chunks = self.parquet_reader.read_pod_usage(
+            pod_chunks = self.parquet_reader.read_pod_usage_line_items(
                 provider_uuid=self.provider_uuid,
-                start_date=start_date,
+                year=year,
+                month=month,
                 streaming=True,  # Returns iterator
                 chunk_size=self.chunk_size,
             )
@@ -463,31 +461,29 @@ class OCPAWSAggregator:
                 - 'namespace_labels': Namespace labels DataFrame
         """
         with PerformanceTimer("Load OCP data", self.logger):
-            # Convert year/month to date for API compatibility
-            from datetime import date
-            start_date = date(year, month, 1)
-
             # Load pod usage
-            pod_usage = self.parquet_reader.read_pod_usage(
+            pod_usage = self.parquet_reader.read_pod_usage_line_items(
                 provider_uuid=self.provider_uuid,
-                start_date=start_date,
+                year=year,
+                month=month,
                 streaming=False,  # OCP data is typically smaller
             )
 
             # Load storage usage
-            storage_usage = self.parquet_reader.read_storage_usage(
+            storage_usage = self.parquet_reader.read_storage_usage_line_items(
                 provider_uuid=self.provider_uuid,
-                start_date=start_date,
+                year=year,
+                month=month,
                 streaming=False,
             )
 
             # Load labels
-            node_labels = self.parquet_reader.read_node_labels(
-                provider_uuid=self.provider_uuid, start_date=start_date
+            node_labels = self.parquet_reader.read_node_labels_line_items(
+                provider_uuid=self.provider_uuid, year=year, month=month
             )
 
-            namespace_labels = self.parquet_reader.read_namespace_labels(
-                provider_uuid=self.provider_uuid, start_date=start_date
+            namespace_labels = self.parquet_reader.read_namespace_labels_line_items(
+                provider_uuid=self.provider_uuid, year=year, month=month
             )
 
             # Add cluster_id and cluster_alias to pod usage for tag matching

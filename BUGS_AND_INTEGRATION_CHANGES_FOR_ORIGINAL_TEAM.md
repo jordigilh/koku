@@ -1513,26 +1513,31 @@ pod_usage = self.parquet_reader.read_pod_usage(
 )
 ```
 
-**Why This Happened:**
-- Both files are part of the POC codebase
-- Method names weren't kept consistent between modules
-- Likely a refactor in `parquet_reader.py` that wasn't propagated to `aggregator_ocp_aws.py`
+**Git History Analysis (commit `d18b30c1`):**
+```
+# aggregator_ocp_aws.py was added calling:
+read_pod_usage_line_items()      # POC original method name
+read_storage_usage_line_items()
+read_node_labels_line_items()
+read_namespace_labels_line_items()
 
-**Fix Applied In Commit:** `790374e0`
+# But parquet_reader.py was added with:
+read_pod_usage()                  # Renamed during integration!
+read_storage_usage()
+read_node_labels()
+read_namespace_labels()
+```
 
-**POC Team Analysis:**
-> ✅ **This is NOT a bug in the standalone POC.** The POC's internal API is consistent:
-> 
-> | Method Called in `aggregator_ocp_aws.py` | Exists in `parquet_reader.py`? |
-> |------------------------------------------|-------------------------------|
-> | `read_pod_usage_line_items()` | ✅ YES |
-> | `read_storage_usage_line_items()` | ✅ YES |
-> | `read_node_labels_line_items()` | ✅ YES |
-> | `read_namespace_labels_line_items()` | ✅ YES |
-> 
-> **Root Cause:** During Koku integration, `parquet_reader.py` was refactored with new method names (`read_pod_usage()` instead of `read_pod_usage_line_items()`), but `aggregator_ocp_aws.py` wasn't updated to match.
-> 
-> **No fix needed in POC repo** - the standalone POC is internally consistent.
+**⚠️ INTEGRATION ERROR - NOT A POC BUG**
+
+Both files were added in the **same commit**, but they're **inconsistent**. This proves:
+1. The POC team's standalone code was internally consistent
+2. Someone modified `parquet_reader.py` during Koku integration (shortened method names)
+3. But forgot to update `aggregator_ocp_aws.py` to match
+
+**Fix Applied In Commit:** `790374e0` (adapted `aggregator_ocp_aws.py` to use Koku's method names)
+
+**No fix needed in POC repo** - the standalone POC is internally consistent.
 
 ---
 

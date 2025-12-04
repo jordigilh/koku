@@ -391,3 +391,66 @@ class ParquetReader:
         except Exception as e:
             LOG.error(f"S3 connectivity test: FAILED - {e}")
             return False
+
+    # =========================================================================
+    # POC-compatible methods (wrappers for aggregator_ocp_aws.py compatibility)
+    # These methods use year/month strings instead of date objects
+    # =========================================================================
+
+    def read_pod_usage_line_items(
+        self,
+        provider_uuid: str,
+        year: int,
+        month: int,
+        daily: bool = True,
+        streaming: bool = False,
+        chunk_size: int = 10000,
+    ) -> pd.DataFrame | Iterator[pd.DataFrame]:
+        """POC-compatible wrapper for read_pod_usage.
+
+        Converts year/month to date and calls read_pod_usage.
+        """
+        start_date = date(int(year), int(month), 1)
+        return self.read_pod_usage(provider_uuid, start_date, streaming, chunk_size)
+
+    def read_storage_usage_line_items(
+        self,
+        provider_uuid: str,
+        year: int,
+        month: int,
+        daily: bool = True,
+        streaming: bool = False,
+        chunk_size: int = 10000,
+    ) -> pd.DataFrame | Iterator[pd.DataFrame]:
+        """POC-compatible wrapper for read_storage_usage.
+
+        Converts year/month to date and calls read_storage_usage.
+        """
+        start_date = date(int(year), int(month), 1)
+        return self.read_storage_usage(provider_uuid, start_date, streaming, chunk_size)
+
+    def read_node_labels_line_items(
+        self,
+        provider_uuid: str,
+        year: int,
+        month: int,
+    ) -> pd.DataFrame:
+        """POC-compatible wrapper for read_node_labels.
+
+        Converts year/month to date and calls read_node_labels.
+        """
+        start_date = date(int(year), int(month), 1)
+        return self.read_node_labels(provider_uuid, start_date)
+
+    def read_namespace_labels_line_items(
+        self,
+        provider_uuid: str,
+        year: int,
+        month: int,
+    ) -> pd.DataFrame:
+        """POC-compatible wrapper for read_namespace_labels.
+
+        Converts year/month to date and calls read_namespace_labels.
+        """
+        start_date = date(int(year), int(month), 1)
+        return self.read_namespace_labels(provider_uuid, start_date)
