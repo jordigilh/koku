@@ -1191,11 +1191,11 @@ The original POC repo has also been updated with:
 
 ### Bug #9: UUID Column Excluded from DB Writes 🚨 CRITICAL
 
-**Severity**: ⚠️⚠️⚠️ **CRITICAL - BLOCKS ALL DATA WRITES**  
-**Impact**: NULL uuid causes NOT NULL constraint violation  
+**Severity**: ⚠️⚠️⚠️ **CRITICAL - BLOCKS ALL DATA WRITES**
+**Impact**: NULL uuid causes NOT NULL constraint violation
 **Discovery**: December 4, 2025
 
-**File**: `koku/masu/processor/parquet/python_aggregator/db_writer.py`  
+**File**: `koku/masu/processor/parquet/python_aggregator/db_writer.py`
 **Lines**: ~176-177, ~353-354
 
 **Error Message:**
@@ -1232,11 +1232,11 @@ self._columns = list(df.columns)
 
 ### Bug #10: StorageAggregator.aggregate() Parameter Name Mismatch
 
-**Severity**: ⚠️ HIGH  
-**Impact**: Storage aggregation fails with TypeError  
+**Severity**: ⚠️ HIGH
+**Impact**: Storage aggregation fails with TypeError
 **Discovery**: December 4, 2025
 
-**File**: `koku/masu/processor/parquet/python_aggregator_integration.py`  
+**File**: `koku/masu/processor/parquet/python_aggregator_integration.py`
 **Line**: ~181-186
 
 **Error Message:**
@@ -1283,11 +1283,11 @@ storage_result_df = storage_agg.aggregate(
 
 ### Bug #11: UnallocatedCapacityAggregator.calculate_unallocated() Parameter Mismatch
 
-**Severity**: ⚠️ HIGH  
-**Impact**: Unallocated capacity calculation fails with TypeError  
+**Severity**: ⚠️ HIGH
+**Impact**: Unallocated capacity calculation fails with TypeError
 **Discovery**: December 4, 2025
 
-**File**: `koku/masu/processor/parquet/python_aggregator_integration.py`  
+**File**: `koku/masu/processor/parquet/python_aggregator_integration.py`
 **Line**: ~202-206
 
 **Error Message:**
@@ -1301,7 +1301,7 @@ Integration code uses wrong parameter names and includes a parameter that doesn'
 **Actual Method Signature (aggregator_unallocated.py line 102):**
 ```python
 def calculate_unallocated(
-    self, 
+    self,
     daily_summary_df: pd.DataFrame,  # ✅ Correct name
     node_roles_df: pd.DataFrame
 ) -> pd.DataFrame:
@@ -1325,6 +1325,49 @@ unalloc_result_df = unalloc_agg.calculate_unallocated(
 ```
 
 **Fix Applied In Commit:** `d756752f`
+
+---
+
+### Bug #12: Categorical Column Causes max() Aggregation Failure
+
+**Severity**: ⚠️ HIGH  
+**Impact**: Unallocated capacity calculation fails  
+**Discovery**: December 4, 2025
+
+**File**: `koku/masu/processor/parquet/python_aggregator/aggregator_unallocated.py`  
+**Line**: ~98
+
+**Error Message:**
+```
+TypeError: Cannot perform max with non-ordered Categorical
+  File "aggregator_unallocated.py", line 98, in _aggregate_node_roles
+    aggregated = node_roles_df.groupby(["node", "resource_id"], as_index=False).agg({"node_role": "max"})
+```
+
+**Root Cause:**
+The `node_role` column is a pandas Categorical type (from Parquet). Pandas cannot perform `max()` aggregation on non-ordered Categorical columns.
+
+**Original Code:**
+```python
+aggregated = node_roles_df.groupby(["node", "resource_id"], as_index=False).agg({"node_role": "max"})
+```
+
+**Fixed Code:**
+```python
+# Convert node_role to string to handle Categorical types
+df = node_roles_df.copy()
+if df["node_role"].dtype.name == "category":
+    df["node_role"] = df["node_role"].astype(str)
+aggregated = df.groupby(["node", "resource_id"], as_index=False).agg({"node_role": "max"})
+```
+
+**Why This Happened:**
+- Parquet files can store strings as Categorical for efficiency
+- Pandas reads these as Categorical dtype
+- Categorical columns don't support `max()` without explicit ordering
+- This only appears when reading actual Parquet files (unit tests may use string columns)
+
+**Fix Applied In Commit:** `eebbad8d`
 
 ---
 

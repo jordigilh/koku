@@ -219,7 +219,14 @@ class UnallocatedCapacityAggregator:
         # Only include columns that exist
         agg_dict = {k: v for k, v in agg_dict.items() if k in df.columns}
 
-        totals = df.groupby(groupby_cols, as_index=False).agg(agg_dict)
+        # Convert Categorical columns to string before aggregation
+        # (pandas can't do max on non-ordered Categorical)
+        df_work = df.copy()
+        for col in agg_dict.keys():
+            if col in df_work.columns and df_work[col].dtype.name == "category":
+                df_work[col] = df_work[col].astype(str)
+
+        totals = df_work.groupby(groupby_cols, as_index=False).agg(agg_dict)
 
         return totals
 
