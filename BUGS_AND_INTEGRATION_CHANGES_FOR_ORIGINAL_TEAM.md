@@ -1067,8 +1067,8 @@ Add integration tests that:
 
 ### Bug #8: Column `csi_volume_handle` Does Not Exist in Koku Database 🚨 CRITICAL
 
-**Severity**: ⚠️⚠️⚠️ **CRITICAL - BLOCKS ALL DATA WRITES**  
-**Impact**: Prevents Python Aggregator from writing any data to database  
+**Severity**: ⚠️⚠️⚠️ **CRITICAL - BLOCKS ALL DATA WRITES**
+**Impact**: Prevents Python Aggregator from writing any data to database
 **Discovery**: December 4, 2025 - During live execution testing after fixing Bug #7
 
 **Files Affected**:
@@ -1165,17 +1165,17 @@ Add schema validation before database writes:
 def validate_columns_against_schema(df: pd.DataFrame, table_name: str, cursor) -> List[str]:
     """Validate DataFrame columns exist in target table."""
     cursor.execute(f"""
-        SELECT column_name 
-        FROM information_schema.columns 
+        SELECT column_name
+        FROM information_schema.columns
         WHERE table_name = '{table_name}'
     """)
     db_columns = {row[0] for row in cursor.fetchall()}
     df_columns = set(df.columns)
-    
+
     invalid_columns = df_columns - db_columns
     if invalid_columns:
         raise ValueError(f"Columns not in database schema: {invalid_columns}")
-    
+
     return list(df_columns & db_columns)
 ```
 

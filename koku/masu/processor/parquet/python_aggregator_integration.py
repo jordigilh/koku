@@ -179,8 +179,8 @@ def process_ocp_parquet(
         )
 
         storage_result_df = storage_agg.aggregate(
-            storage_usage_df=storage_usage_df,
-            pod_usage_df=pod_usage_df,
+            storage_df=storage_usage_df,
+            pod_df=pod_usage_df,
             node_labels_df=node_labels_df,
             namespace_labels_df=namespace_labels_df,
             cost_category_df=cost_category_df,
