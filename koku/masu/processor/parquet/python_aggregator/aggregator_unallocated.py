@@ -95,7 +95,11 @@ class UnallocatedCapacityAggregator:
 
         # Group by node + resource_id and take MAX of node_role
         # This matches Trino: SELECT max(node_role) AS node_role
-        aggregated = node_roles_df.groupby(["node", "resource_id"], as_index=False).agg({"node_role": "max"})
+        # Convert node_role to string to handle Categorical types (pandas can't do max on non-ordered Categorical)
+        df = node_roles_df.copy()
+        if df["node_role"].dtype.name == "category":
+            df["node_role"] = df["node_role"].astype(str)
+        aggregated = df.groupby(["node", "resource_id"], as_index=False).agg({"node_role": "max"})
 
         return aggregated
 

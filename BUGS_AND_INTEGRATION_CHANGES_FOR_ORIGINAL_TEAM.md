@@ -1189,3 +1189,142 @@ The original POC repo has also been updated with:
 
 ---
 
+### Bug #9: UUID Column Excluded from DB Writes 🚨 CRITICAL
+
+**Severity**: ⚠️⚠️⚠️ **CRITICAL - BLOCKS ALL DATA WRITES**  
+**Impact**: NULL uuid causes NOT NULL constraint violation  
+**Discovery**: December 4, 2025
+
+**File**: `koku/masu/processor/parquet/python_aggregator/db_writer.py`  
+**Lines**: ~176-177, ~353-354
+
+**Error Message:**
+```
+psycopg2.errors.NotNullViolation: null value in column "uuid" of relation "reporting_ocpusagelineitem_daily_summary_2025_11" violates not-null constraint
+```
+
+**Root Cause:**
+The `db_writer.py` explicitly EXCLUDES the `uuid` column from INSERT statements, assuming PostgreSQL would auto-generate it. But Koku's schema requires uuid to be provided (NOT NULL, no default).
+
+**Original Code:**
+```python
+# Line 176-177
+# Prepare data (exclude uuid - PostgreSQL generates it)
+columns = [col for col in df.columns if col != "uuid"]
+
+# Line 353-354
+self._columns = [col for col in df.columns if col != "uuid"]
+```
+
+**Fixed Code:**
+```python
+# Line 176-177
+# Include uuid since we generate it in aggregators (Koku schema requires it)
+columns = list(df.columns)
+
+# Line 353-354
+self._columns = list(df.columns)
+```
+
+**Fix Applied In Commit:** `c9daa4c6`
+
+---
+
+### Bug #10: StorageAggregator.aggregate() Parameter Name Mismatch
+
+**Severity**: ⚠️ HIGH  
+**Impact**: Storage aggregation fails with TypeError  
+**Discovery**: December 4, 2025
+
+**File**: `koku/masu/processor/parquet/python_aggregator_integration.py`  
+**Line**: ~181-186
+
+**Error Message:**
+```
+TypeError: StorageAggregator.aggregate() got an unexpected keyword argument 'storage_usage_df'
+```
+
+**Root Cause:**
+Integration code uses `storage_usage_df=` and `pod_usage_df=` but the actual method signature expects `storage_df=` and `pod_df=`.
+
+**Actual Method Signature (aggregator_storage.py line 114):**
+```python
+def aggregate(
+    self,
+    storage_df: pd.DataFrame,      # ✅ Correct name
+    pod_df: pd.DataFrame,          # ✅ Correct name
+    node_labels_df: pd.DataFrame,
+    namespace_labels_df: pd.DataFrame,
+    cost_category_df: pd.DataFrame = None,
+) -> pd.DataFrame:
+```
+
+**Original Integration Code:**
+```python
+storage_result_df = storage_agg.aggregate(
+    storage_usage_df=storage_usage_df,  # ❌ Wrong parameter name
+    pod_usage_df=pod_usage_df,          # ❌ Wrong parameter name
+    ...
+)
+```
+
+**Fixed Integration Code:**
+```python
+storage_result_df = storage_agg.aggregate(
+    storage_df=storage_usage_df,   # ✅ Correct
+    pod_df=pod_usage_df,           # ✅ Correct
+    ...
+)
+```
+
+**Fix Applied In Commit:** `0795b592`
+
+---
+
+### Bug #11: UnallocatedCapacityAggregator.calculate_unallocated() Parameter Mismatch
+
+**Severity**: ⚠️ HIGH  
+**Impact**: Unallocated capacity calculation fails with TypeError  
+**Discovery**: December 4, 2025
+
+**File**: `koku/masu/processor/parquet/python_aggregator_integration.py`  
+**Line**: ~202-206
+
+**Error Message:**
+```
+TypeError: UnallocatedCapacityAggregator.calculate_unallocated() got an unexpected keyword argument 'pod_summary_df'
+```
+
+**Root Cause:**
+Integration code uses wrong parameter names and includes a parameter that doesn't exist.
+
+**Actual Method Signature (aggregator_unallocated.py line 102):**
+```python
+def calculate_unallocated(
+    self, 
+    daily_summary_df: pd.DataFrame,  # ✅ Correct name
+    node_roles_df: pd.DataFrame
+) -> pd.DataFrame:
+```
+
+**Original Integration Code:**
+```python
+unalloc_result_df = unalloc_agg.calculate_unallocated(
+    pod_summary_df=pod_result_df,      # ❌ Wrong: should be daily_summary_df
+    node_capacity_df=node_capacity_df, # ❌ Wrong: parameter doesn't exist
+    node_roles_df=node_roles_df,
+)
+```
+
+**Fixed Integration Code:**
+```python
+unalloc_result_df = unalloc_agg.calculate_unallocated(
+    daily_summary_df=pod_result_df,  # ✅ Correct
+    node_roles_df=node_roles_df,
+)
+```
+
+**Fix Applied In Commit:** `d756752f`
+
+---
+
