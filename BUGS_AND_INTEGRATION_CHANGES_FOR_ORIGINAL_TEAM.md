@@ -1373,11 +1373,11 @@ aggregated = df.groupby(["node", "resource_id"], as_index=False).agg({"node_role
 
 ### Bug #13: UnallocatedCapacityAggregator Missing UUID Generation 🚨 CRITICAL
 
-**Severity**: ⚠️⚠️⚠️ **CRITICAL - BLOCKS UNALLOCATED DATA WRITES**  
-**Impact**: Unallocated capacity data cannot be written to database  
+**Severity**: ⚠️⚠️⚠️ **CRITICAL - BLOCKS UNALLOCATED DATA WRITES**
+**Impact**: Unallocated capacity data cannot be written to database
 **Discovery**: December 4, 2025
 
-**File**: `koku/masu/processor/parquet/python_aggregator/aggregator_unallocated.py`  
+**File**: `koku/masu/processor/parquet/python_aggregator/aggregator_unallocated.py`
 **Method**: `_format_output()`
 
 **Error Message:**
@@ -1416,6 +1416,51 @@ def _format_output(self, df: pd.DataFrame) -> pd.DataFrame:
 ```
 
 **Fix Applied In Commit:** `903e5caa`
+
+---
+
+### Bug #14: PerformanceTimer Logger Keyword Arguments Not Supported
+
+**Severity**: ⚠️ HIGH
+**Impact**: OCP-on-AWS aggregation crashes
+**Discovery**: December 4, 2025
+
+**File**: `koku/masu/processor/parquet/python_aggregator/utils.py`
+**Method**: `PerformanceTimer.__exit__()`
+
+**Error Message:**
+```
+TypeError: Logger._log() got an unexpected keyword argument 'duration_seconds'
+```
+
+**Root Cause:**
+The `PerformanceTimer` context manager passes keyword arguments like `duration_seconds` and `error` to the logger, but standard Python loggers don't accept arbitrary keyword arguments.
+
+**Original Code:**
+```python
+def __exit__(self, exc_type, exc_val, exc_tb):
+    if exc_type is None:
+        self.logger.info(f"Completed: {self.name}", duration_seconds=round(duration, 3))
+    else:
+        self.logger.error(
+            f"Failed: {self.name}",
+            duration_seconds=round(duration, 3),
+            error=str(exc_val),
+        )
+```
+
+**Fixed Code:**
+```python
+def __exit__(self, exc_type, exc_val, exc_tb):
+    if exc_type is None:
+        self.logger.info(f"Completed: {self.name} (duration: {round(duration, 3)}s)")
+    else:
+        self.logger.error(f"Failed: {self.name} (duration: {round(duration, 3)}s, error: {exc_val})")
+```
+
+**Note:** If using structured logging (e.g., `log_json()`), kwargs work. But standard Python `logging.Logger` doesn't support them.
+
+**Fix Applied In Commit:** `21a2b134`
 
 ---
 
