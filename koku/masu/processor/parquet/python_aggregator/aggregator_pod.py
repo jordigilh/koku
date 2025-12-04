@@ -1,6 +1,7 @@
 """OCP Pod usage aggregation logic (replicates Trino SQL) - Koku native implementation."""
 
 import os
+import uuid as uuid_lib
 from collections import defaultdict
 from datetime import date
 from typing import Dict, List, Optional, Tuple
@@ -831,7 +832,7 @@ class PodAggregator:
         df["pod_labels"] = df["merged_labels"]
 
         # Add fixed columns
-        df["uuid"] = None  # PostgreSQL will generate
+        df["uuid"] = [str(uuid_lib.uuid4()) for _ in range(len(df))]  # Generate UUIDs
         df["report_period_id"] = self.report_period_id
         df["cluster_id"] = self.cluster_id
         df["cluster_alias"] = self.cluster_alias
