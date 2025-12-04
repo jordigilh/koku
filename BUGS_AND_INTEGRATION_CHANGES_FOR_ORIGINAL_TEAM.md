@@ -1065,3 +1065,121 @@ Add integration tests that:
 
 ---
 
+### Bug #8: Column `csi_volume_handle` Does Not Exist in Koku Database 🚨 CRITICAL
+
+**Severity**: ⚠️⚠️⚠️ **CRITICAL - BLOCKS ALL DATA WRITES**  
+**Impact**: Prevents Python Aggregator from writing any data to database  
+**Discovery**: December 4, 2025 - During live execution testing after fixing Bug #7
+
+**Files Affected**:
+- `koku/masu/processor/parquet/python_aggregator/aggregator_pod.py` (lines ~854, ~908)
+- `koku/masu/processor/parquet/python_aggregator/aggregator_storage.py` (lines ~672, ~737)
+
+**Error Message:**
+```
+psycopg2.errors.UndefinedColumn: column "csi_volume_handle" of relation "reporting_ocpusagelineitem_daily_summary" does not exist
+LINE 1: ...e_months, source_uuid, infrastructure_usage_cost, csi_volume...
+                                                             ^
+```
+
+**Root Cause:**
+The Python Aggregator includes `csi_volume_handle` in the output DataFrame columns, but this column **does not exist** in the Koku production database schema for `reporting_ocpusagelineitem_daily_summary`.
+
+**Database Schema Verification:**
+```sql
+-- Check for csi column in Koku database:
+\d org1234567.reporting_ocpusagelineitem_daily_summary | grep -i csi
+-- Returns: (empty - no csi columns exist)
+
+-- The table has these storage-related columns instead:
+-- persistentvolumeclaim
+-- persistentvolume
+-- storageclass
+-- volume_labels
+-- persistentvolumeclaim_capacity_gigabyte
+-- persistentvolumeclaim_capacity_gigabyte_months
+-- volume_request_storage_gigabyte_months
+-- persistentvolumeclaim_usage_gigabyte_months
+```
+
+**Original Code in `aggregator_pod.py`:**
+```python
+# Line ~854 - Setting the column value
+df["csi_volume_handle"] = None
+
+# Line ~908 - Including in output columns
+output_columns = [
+    ...
+    "csi_volume_handle",  # ❌ THIS COLUMN DOESN'T EXIST IN KOKU DB
+    "cost_category_id",
+]
+```
+
+**Original Code in `aggregator_storage.py`:**
+```python
+# Line ~672 - Setting the column value
+result["csi_volume_handle"] = df["csi_volume_handle"].fillna("")
+
+# Line ~737 - In _create_empty_result columns
+columns=[
+    ...
+    "csi_volume_handle",  # ❌ THIS COLUMN DOESN'T EXIST IN KOKU DB
+    ...
+]
+```
+
+**Fixed Code:**
+```python
+# aggregator_pod.py - Remove both lines:
+# df["csi_volume_handle"] = None  # REMOVED
+# "csi_volume_handle",            # REMOVED from output_columns
+
+# aggregator_storage.py - Remove both lines:
+# result["csi_volume_handle"] = df["csi_volume_handle"].fillna("")  # REMOVED
+# "csi_volume_handle",  # REMOVED from _create_empty_result columns
+```
+
+**How To Reproduce:**
+```python
+# In Django shell or Celery worker pod:
+from masu.processor.parquet.python_aggregator_integration import process_ocp_parquet
+result = process_ocp_parquet(
+    schema_name='org1234567',
+    provider_uuid='186de065-ba11-4034-9c8b-eb217e063263',
+    year=2025,
+    month=11
+)
+# Before fix: psycopg2.errors.UndefinedColumn: column "csi_volume_handle" does not exist
+# After fix: {'status': 'success', ...}
+```
+
+**Why This Bug Wasn't Caught:**
+1. **Schema mismatch** - The POC may have been developed against a different database schema that included `csi_volume_handle`
+2. **Unit tests mock the database** - Mocked writes don't validate column names
+3. **Sequential bug discovery** - Earlier bugs (Dict imports, "pod" column) masked this one
+
+**Recommended Fix for POC Team:**
+
+Add schema validation before database writes:
+```python
+def validate_columns_against_schema(df: pd.DataFrame, table_name: str, cursor) -> List[str]:
+    """Validate DataFrame columns exist in target table."""
+    cursor.execute(f"""
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = '{table_name}'
+    """)
+    db_columns = {row[0] for row in cursor.fetchall()}
+    df_columns = set(df.columns)
+    
+    invalid_columns = df_columns - db_columns
+    if invalid_columns:
+        raise ValueError(f"Columns not in database schema: {invalid_columns}")
+    
+    return list(df_columns & db_columns)
+```
+
+**Fix Applied In Commit:** `235c2ae8`
+
+---
+
