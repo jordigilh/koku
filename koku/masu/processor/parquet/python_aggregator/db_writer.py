@@ -173,8 +173,9 @@ class DatabaseWriter:
                     cursor.execute(f"TRUNCATE TABLE {table_name} CASCADE")
                     LOG.warning(f"Truncated {table_name}")
 
-                # Prepare data (exclude uuid - PostgreSQL generates it)
-                columns = [col for col in df.columns if col != "uuid"]
+                # Prepare data - include uuid since we generate it in aggregators
+                # (Koku's PostgreSQL schema requires uuid but doesn't auto-generate)
+                columns = list(df.columns)
                 df_insert = df[columns].copy()
 
                 # Convert JSON columns
@@ -349,8 +350,9 @@ class StreamingDBWriter:
         chunk_rows = len(df)
 
         # Prepare columns (first time only)
+        # Include uuid since we generate it in aggregators (Koku schema requires it)
         if self._columns is None:
-            self._columns = [col for col in df.columns if col != "uuid"]
+            self._columns = list(df.columns)
             column_names = ", ".join(self._columns)
             self._insert_query = f"INSERT INTO {self.table_name} ({column_names}) VALUES %s"
 
