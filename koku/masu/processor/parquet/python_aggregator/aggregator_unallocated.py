@@ -7,6 +7,7 @@ Implements Trino SQL lines 491-581 from reporting_ocpusagelineitem_daily_summary
 - Creates "Worker unallocated" namespace for worker nodes
 """
 
+import uuid as uuid_lib
 from typing import Optional
 
 import numpy as np
@@ -356,5 +357,8 @@ class UnallocatedCapacityAggregator:
         result["pod_labels"] = "{}"
         result["volume_labels"] = None
         result["all_labels"] = "{}"  # Trino SQL lines 651-654: empty for unallocated
+
+        # UUID - must be generated (Koku schema requires it, no auto-generation)
+        result["uuid"] = [str(uuid_lib.uuid4()) for _ in range(len(result))]
 
         return result

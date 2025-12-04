@@ -1330,11 +1330,11 @@ unalloc_result_df = unalloc_agg.calculate_unallocated(
 
 ### Bug #12: Categorical Column Causes max() Aggregation Failure
 
-**Severity**: ⚠️ HIGH  
-**Impact**: Unallocated capacity calculation fails  
+**Severity**: ⚠️ HIGH
+**Impact**: Unallocated capacity calculation fails
 **Discovery**: December 4, 2025
 
-**File**: `koku/masu/processor/parquet/python_aggregator/aggregator_unallocated.py`  
+**File**: `koku/masu/processor/parquet/python_aggregator/aggregator_unallocated.py`
 **Line**: ~98
 
 **Error Message:**
