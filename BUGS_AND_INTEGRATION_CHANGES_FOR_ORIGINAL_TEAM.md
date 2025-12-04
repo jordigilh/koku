@@ -8,21 +8,47 @@
 
 ## 📋 Overview
 
-During integration testing in a real Koku cluster, we found **6 bugs** and made **architectural changes** to integrate with Koku's native patterns. This document provides complete details so the original team can:
-1. Fix bugs in their standalone repository
-2. Understand the Koku-native integration patterns we used
-3. Apply these patterns if extending to other scenarios (OCP-on-Azure, OCP-on-GCP, etc.)
+During integration testing in a real Koku cluster, we found **15 bugs** (10 POC bugs + 5 integration issues) and made **architectural changes** to integrate with Koku's native patterns. This document provides complete details so the original team can:
+1. **Fix POC bugs** (marked 🔴) in their standalone repository
+2. **Ignore integration bugs** (marked 🟡) - these are Koku-specific
+3. **Address technical debt** (TD-1 only) - logging format migration
+4. **Apply these patterns** if extending to other scenarios (OCP-on-Azure, OCP-on-GCP, etc.)
 
 ---
 
-## 🐛 BUGS FOUND (7 Total)
+## 🐛 BUGS FOUND (15 Total)
 
-All bugs were **import-related**, **function call**, or **column name mapping** issues that only appeared during end-to-end testing in a real cluster.
+All bugs were discovered during end-to-end testing in a real Koku cluster.
+
+### Quick Reference: Bug Classification
+
+| Bug # | Description | Type | POC Team Action |
+|-------|-------------|------|-----------------|
+| #1 | Missing `Dict` import in `aws_data_loader.py` | 🔴 **POC BUG** | **FIX REQUIRED** |
+| #2 | Function name mismatches in entry points | 🟡 **INTEGRATION** | Ignore (Koku-specific) |
+| #3 | Missing `Dict` import in `resource_matcher.py` | 🔴 **POC BUG** | **FIX REQUIRED** |
+| #4 | Missing `Dict` import in `aggregator_ocp_aws.py` | 🔴 **POC BUG** | **FIX REQUIRED** |
+| #5 | Incorrect `calculate_node_capacity` method call | 🔴 **POC BUG** | **FIX REQUIRED** |
+| #6 | Missing logging visibility | 🟡 **INTEGRATION** | Optional improvement |
+| #7 | "pod" column doesn't exist in DB | 🔴 **POC BUG** | **FIX REQUIRED** |
+| #8 | "csi_volume_handle" column doesn't exist in DB | 🔴 **POC BUG** | **FIX REQUIRED** |
+| #9 | UUID excluded from DB writes | 🔴 **POC BUG** | **FIX REQUIRED** |
+| #10 | `StorageAggregator.aggregate()` param mismatch | 🟡 **INTEGRATION** | Ignore (Koku-specific) |
+| #11 | `UnallocatedCapacityAggregator` param mismatch | 🟡 **INTEGRATION** | Ignore (Koku-specific) |
+| #12 | Categorical column `max()` failure | 🔴 **POC BUG** | **FIX REQUIRED** |
+| #13 | `UnallocatedCapacityAggregator` missing UUID | 🔴 **POC BUG** | **FIX REQUIRED** |
+| #14 | `PerformanceTimer` logging kwargs failure | 🔴 **POC BUG** | **FIX REQUIRED** |
+| #15 | `_line_items` method name mismatch | 🟡 **INTEGRATION** | Ignore (Koku refactor) |
+
+### Legend:
+- 🔴 **POC BUG** = Bug exists in POC codebase, POC team must fix
+- 🟡 **INTEGRATION** = Koku integration issue only, POC team can ignore
 
 ---
 
 ### Bug #1: Missing `Dict` Import in `aws_data_loader.py`
 
+**Type**: 🔴 **POC BUG** - Fix required in POC codebase
 **Severity**: ⚠️ HIGH
 **Impact**: Blocks OCP-on-AWS processing completely
 
@@ -62,6 +88,7 @@ python3 -c "from masu.processor.parquet.python_aggregator.aws_data_loader import
 
 ### Bug #2: Function Name Mismatches in Entry Points
 
+**Type**: 🟡 **INTEGRATION** - POC team can ignore (Koku-specific wiring)
 **Severity**: ⚠️ HIGH
 **Impact**: Entry points can't invoke Python Aggregator
 
@@ -119,6 +146,7 @@ from masu.processor.parquet.poc_integration import process_ocp_parquet_poc
 
 ### Bug #3: Missing `Dict` Import in `resource_matcher.py` 🚨 CRITICAL
 
+**Type**: 🔴 **POC BUG** - Fix required in POC codebase
 **Severity**: ⚠️⚠️⚠️ **CRITICAL - ROOT CAUSE OF ALL TEST FAILURES**
 **Impact**: Prevents Python Aggregator from ever running
 
@@ -179,6 +207,7 @@ python manage.py shell -c "from masu.processor.parquet.python_aggregator.resourc
 
 ### Bug #4: Missing `Dict` Import in `aggregator_ocp_aws.py`
 
+**Type**: 🔴 **POC BUG** - Fix required in POC codebase
 **Severity**: ⚠️ HIGH
 **Impact**: Blocks OCP-on-AWS processing after fixing Bug #3
 
@@ -222,6 +251,7 @@ python manage.py shell -c "from masu.processor.parquet.python_aggregator.aggrega
 
 ### Bug #5: Incorrect Method Call for `calculate_node_capacity`
 
+**Type**: 🔴 **POC BUG** - Fix required in POC codebase
 **Severity**: ⚠️ HIGH
 **Impact**: Python Aggregator crashes when processing data
 
@@ -288,6 +318,7 @@ result = process_ocp_parquet(
 
 ### Bug #6: Missing Python Aggregator Invocation Logging
 
+**Type**: 🟡 **INTEGRATION** - POC team can ignore (optional improvement)
 **Severity**: ⚠️ MEDIUM
 **Impact**: Hard to debug whether Python Aggregator is actually being used vs Trino
 
@@ -880,21 +911,23 @@ After fixing all bugs and deploying with Python Aggregator:
 
 ## 🎯 Recommendations For Original Team
 
-### High Priority:
-1. **Fix all 6 bugs in your repository immediately**
-2. **Add import tests** to catch these in CI/CD
-3. **Add end-to-end integration tests** (not just unit tests)
+### 🔴 HIGH Priority (Fix Immediately):
+1. **Fix all 10 POC bugs** marked with 🔴 in your repository
+2. **Add import tests** to catch missing type hints in CI/CD
+3. **Add schema validation** to catch column mismatches before DB writes
 4. **Test in a real Koku environment** before handing off
+5. **Address TD-1** (logging format migration) to remove workaround adapter
 
-### Medium Priority:
-5. **Apply Koku-native patterns** if you want seamless integration
-6. **Add prominent logging** for debugging
+### 🟡 MEDIUM Priority:
+6. **Apply Koku-native patterns** if you want seamless integration
 7. **Document the integration patterns** in your repo
+8. ~~**Address TD-2**~~ - Not needed (POC uses clean YAML config)
 
-### If Extending To Other Scenarios:
-8. **Follow the same patterns** we used for OCP-only and OCP-on-AWS
-9. **Reuse existing modules** (parquet_reader, db_writer, resource_matcher, tag_matcher)
-10. **Test thoroughly** with real data in Koku
+### 🟢 If Extending To Other Scenarios (OCP-on-Azure, OCP-on-GCP):
+9. **Follow the same patterns** we used for OCP-only and OCP-on-AWS
+10. **Reuse existing modules** (parquet_reader, db_writer, resource_matcher, tag_matcher)
+11. **Verify column mappings** against Koku's actual database schema
+12. **Test thoroughly** with real data in Koku
 
 ---
 
@@ -930,6 +963,7 @@ All bugs have been fixed, and the aggregator is **production-ready** with `USE_P
 
 ### Bug #7: Incorrect Column Name Mapping - "pod" vs "resource_id" 🚨 CRITICAL
 
+**Type**: 🔴 **POC BUG** - Fix required in POC codebase
 **Severity**: ⚠️⚠️⚠️ **CRITICAL - BLOCKS ALL DATA WRITES**
 **Impact**: Prevents Python Aggregator from writing any data to database
 **Discovery**: December 3, 2025 - During live execution testing with actual Koku cluster
@@ -1067,6 +1101,7 @@ Add integration tests that:
 
 ### Bug #8: Column `csi_volume_handle` Does Not Exist in Koku Database 🚨 CRITICAL
 
+**Type**: 🔴 **POC BUG** - Fix required in POC codebase
 **Severity**: ⚠️⚠️⚠️ **CRITICAL - BLOCKS ALL DATA WRITES**
 **Impact**: Prevents Python Aggregator from writing any data to database
 **Discovery**: December 4, 2025 - During live execution testing after fixing Bug #7
@@ -1191,6 +1226,7 @@ The original POC repo has also been updated with:
 
 ### Bug #9: UUID Column Excluded from DB Writes 🚨 CRITICAL
 
+**Type**: 🔴 **POC BUG** - Fix required in POC codebase
 **Severity**: ⚠️⚠️⚠️ **CRITICAL - BLOCKS ALL DATA WRITES**
 **Impact**: NULL uuid causes NOT NULL constraint violation
 **Discovery**: December 4, 2025
@@ -1232,6 +1268,7 @@ self._columns = list(df.columns)
 
 ### Bug #10: StorageAggregator.aggregate() Parameter Name Mismatch
 
+**Type**: 🟡 **INTEGRATION** - POC team can ignore (Koku integration code issue)
 **Severity**: ⚠️ HIGH
 **Impact**: Storage aggregation fails with TypeError
 **Discovery**: December 4, 2025
@@ -1283,6 +1320,7 @@ storage_result_df = storage_agg.aggregate(
 
 ### Bug #11: UnallocatedCapacityAggregator.calculate_unallocated() Parameter Mismatch
 
+**Type**: 🟡 **INTEGRATION** - POC team can ignore (Koku integration code issue)
 **Severity**: ⚠️ HIGH
 **Impact**: Unallocated capacity calculation fails with TypeError
 **Discovery**: December 4, 2025
@@ -1330,6 +1368,7 @@ unalloc_result_df = unalloc_agg.calculate_unallocated(
 
 ### Bug #12: Categorical Column Causes max() Aggregation Failure
 
+**Type**: 🔴 **POC BUG** - Fix required in POC codebase
 **Severity**: ⚠️ HIGH
 **Impact**: Unallocated capacity calculation fails
 **Discovery**: December 4, 2025
@@ -1373,6 +1412,7 @@ aggregated = df.groupby(["node", "resource_id"], as_index=False).agg({"node_role
 
 ### Bug #13: UnallocatedCapacityAggregator Missing UUID Generation 🚨 CRITICAL
 
+**Type**: 🔴 **POC BUG** - Fix required in POC codebase
 **Severity**: ⚠️⚠️⚠️ **CRITICAL - BLOCKS UNALLOCATED DATA WRITES**
 **Impact**: Unallocated capacity data cannot be written to database
 **Discovery**: December 4, 2025
@@ -1421,6 +1461,7 @@ def _format_output(self, df: pd.DataFrame) -> pd.DataFrame:
 
 ### Bug #14: PerformanceTimer Logger Keyword Arguments Not Supported
 
+**Type**: 🔴 **POC BUG** - Fix required in POC codebase
 **Severity**: ⚠️ HIGH
 **Impact**: OCP-on-AWS aggregation crashes
 **Discovery**: December 4, 2025
@@ -1466,6 +1507,7 @@ def __exit__(self, exc_type, exc_val, exc_tb):
 
 ### Bug #15: OCP-AWS Aggregator Calls Non-Existent ParquetReader Methods
 
+**Type**: 🟡 **INTEGRATION** - POC team can ignore (Koku refactored method names)
 **Severity**: ⚠️⚠️⚠️ **CRITICAL - BLOCKS OCP-ON-AWS COMPLETELY**
 **Impact**: OCP-on-AWS aggregation cannot run at all
 **Discovery**: December 4, 2025
@@ -1543,11 +1585,21 @@ Both files were added in the **same commit**, but they're **inconsistent**. This
 
 ## 📝 TECHNICAL DEBT - ACTION REQUIRED BY POC TEAM
 
-### TD-1: Logging Format Migration (REQUIRED)
+### Quick Reference: Technical Debt Classification
 
-**Priority**: 🔴 HIGH  
-**Impact**: Code maintainability and Koku standards compliance  
+| TD # | Description | Priority | POC Team Action | Status |
+|------|-------------|----------|-----------------|--------|
+| TD-1 | Logging kwargs → f-string/log_json | 🔴 **HIGH** | **MIGRATE REQUIRED** | ✅ **COMPLETED** |
+| TD-2 | Config `POC_*` → Django settings | 🟢 **N/A** | **NO ACTION** | ✅ **CLARIFIED** |
+
+---
+
+### TD-1: Logging Format Migration (REQUIRED) ✅ COMPLETED
+
+**Priority**: 🔴 HIGH
+**Impact**: Code maintainability and Koku standards compliance
 **Owner**: POC Team
+**Status**: ✅ **COMPLETED** - Commit `ad473b5`
 
 **Current State:**
 The POC code uses structured logging with keyword arguments:
@@ -1560,7 +1612,7 @@ This is incompatible with standard Python loggers. A **temporary workaround** ha
 ```python
 class KwargsLoggingAdapter(logging.LoggerAdapter):
     """Logger adapter that converts kwargs to message string.
-    
+
     TEMPORARY WORKAROUND - This is technical debt!
     """
     def process(self, msg, kwargs):
@@ -1605,20 +1657,75 @@ Remove the `KwargsLoggingAdapter` workaround from `utils.py` and revert `get_log
 
 ---
 
-### TD-2: Configuration Consolidation (OPTIONAL)
+### TD-2: Configuration Consolidation (KOKU-SIDE ONLY)
 
-**Priority**: 🟡 MEDIUM  
+**Priority**: 🟢 N/A for POC Team
 **Impact**: Standardization with Koku patterns
+**Owner**: Koku Integration Team (NOT POC Team)
 
-The POC uses environment variables with `POC_` prefix:
-- `POC_USE_CATEGORICAL`
-- `POC_COLUMN_FILTERING`
-- `POC_PARALLEL_READERS`
-- `POC_USE_STREAMING`
-- `POC_CHUNK_SIZE`
-- etc.
+**POC Team Clarification:**
+> ⚠️ **Correction:** The POC does NOT use `POC_*` environment variables directly. It uses a **YAML config file** (`config/config.yaml`) with environment variable expansion:
+>
+> ```yaml
+> # config/config.yaml - actual POC config format
+> performance:
+>   use_categorical: true
+>   column_filtering: true
+>   parallel_readers: 4
+>   use_streaming: ${USE_STREAMING:-false}
+>   chunk_size: ${CHUNK_SIZE:-100000}
+> ```
+>
+> The only `POC_*` variables are `POC_YEAR` and `POC_MONTH` in `main.py` (standalone entry point only).
+>
+> **No action needed in POC** - the YAML config is clean. Koku integration should handle the Django settings bridge on their side.
 
-Consider migrating these to Django settings for consistency with Koku patterns.
+**Current State (Corrected):**
+The POC uses YAML configuration with optional env var overrides:
+```yaml
+# In config/config.yaml:
+performance:
+  use_categorical: true
+  column_filtering: true
+  parallel_readers: 4
+  use_streaming: ${USE_STREAMING:-false}
+  chunk_size: ${CHUNK_SIZE:-100000}
+```
+
+**Recommended Migration:**
+Migrate to Django settings for Koku consistency:
+```python
+# In koku/koku/settings.py:
+PYTHON_AGGREGATOR_USE_CATEGORICAL = env.bool("PYTHON_AGGREGATOR_USE_CATEGORICAL", default=True)
+PYTHON_AGGREGATOR_COLUMN_FILTERING = env.bool("PYTHON_AGGREGATOR_COLUMN_FILTERING", default=True)
+PYTHON_AGGREGATOR_PARALLEL_READERS = env.int("PYTHON_AGGREGATOR_PARALLEL_READERS", default=4)
+PYTHON_AGGREGATOR_USE_STREAMING = env.bool("PYTHON_AGGREGATOR_USE_STREAMING", default=False)
+PYTHON_AGGREGATOR_CHUNK_SIZE = env.int("PYTHON_AGGREGATOR_CHUNK_SIZE", default=10000)
+
+# In POC files:
+from django.conf import settings
+
+USE_CATEGORICAL = settings.PYTHON_AGGREGATOR_USE_CATEGORICAL
+COLUMN_FILTERING = settings.PYTHON_AGGREGATOR_COLUMN_FILTERING
+# etc.
+```
+
+**Benefits:**
+- Consistent with Koku patterns
+- Centralized configuration
+- Type validation at startup
+- Easier to document and maintain
+
+**Mandatory Knobs (keep for in-memory processing):**
+- `PARALLEL_READERS` (4) - parallel file reading from S3
+- `USE_CATEGORICAL` (true) - memory optimization
+- `COLUMN_FILTERING` (true) - memory optimization
+
+**Optional/Streaming Knobs (can be removed if not using streaming):**
+- `USE_STREAMING` (false) - streaming mode toggle
+- `CHUNK_SIZE` (10000) - only relevant for streaming
+
+**Deadline**: Before production deployment (optional)
 
 ---
 
