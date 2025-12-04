@@ -1040,7 +1040,28 @@ result = process_ocp_parquet(
 - Standalone POC may use different database schema
 - Only appears during real Koku integration
 
-**Fix Applied In Commit:** `<pending>`
+**Fix Applied In Commit:** `f8f87620`
+
+**Why We Didn't Catch This Earlier:**
+
+This bug was particularly sneaky because:
+
+1. **Unit tests mock the database** - Unit tests typically mock `DatabaseWriter._write_data()`, so they never actually execute the INSERT statement against PostgreSQL. The column mismatch only appears when writing to a real database.
+
+2. **DataFrame column names match Parquet file, not DB schema** - The Parquet files have a `pod` column (from nise generator). During aggregation, we use `resource_id` for grouping, but the original `pod` column could "leak" through if not explicitly excluded.
+
+3. **The error is silent until execution** - Python doesn't validate column names until the INSERT statement runs. There's no static analysis that catches `df["pod"]` assignments when the target table doesn't have that column.
+
+4. **Standalone POC may have used different schema** - If the standalone POC was tested against a different database schema (or a mock), the column mismatch wouldn't have been detected.
+
+5. **The import chain failures masked this bug** - The earlier bugs (Dict imports, function names) prevented the aggregator from ever reaching the database write stage. Once those were fixed, this bug became visible.
+
+**Lesson Learned:**
+
+Add integration tests that:
+1. Write to a real PostgreSQL database with Koku's actual schema
+2. Verify the DataFrame columns match the target table exactly
+3. Run `EXPLAIN INSERT ...` to catch column mismatches before actual execution
 
 ---
 
