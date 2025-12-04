@@ -299,13 +299,9 @@ class PerformanceTimer:
         duration = (self.end_time - self.start_time).total_seconds()
 
         if exc_type is None:
-            self.logger.info(f"Completed: {self.name}", duration_seconds=round(duration, 3))
+            self.logger.info(f"Completed: {self.name} (duration: {round(duration, 3)}s)")
         else:
-            self.logger.error(
-                f"Failed: {self.name}",
-                duration_seconds=round(duration, 3),
-                error=str(exc_val),
-            )
+            self.logger.error(f"Failed: {self.name} (duration: {round(duration, 3)}s, error: {exc_val})")
 
     @property
     def duration_seconds(self) -> Optional[float]:

@@ -1371,3 +1371,51 @@ aggregated = df.groupby(["node", "resource_id"], as_index=False).agg({"node_role
 
 ---
 
+### Bug #13: UnallocatedCapacityAggregator Missing UUID Generation 🚨 CRITICAL
+
+**Severity**: ⚠️⚠️⚠️ **CRITICAL - BLOCKS UNALLOCATED DATA WRITES**  
+**Impact**: Unallocated capacity data cannot be written to database  
+**Discovery**: December 4, 2025
+
+**File**: `koku/masu/processor/parquet/python_aggregator/aggregator_unallocated.py`  
+**Method**: `_format_output()`
+
+**Error Message:**
+```
+psycopg2.errors.NotNullViolation: null value in column "uuid" of relation "reporting_ocpusagelineitem_daily_summary_2025_11" violates not-null constraint
+```
+
+**Root Cause:**
+The `_format_output()` method creates a DataFrame for INSERT but doesn't generate UUIDs. The Koku database requires uuid (NOT NULL, no default).
+
+**Original Code (missing uuid):**
+```python
+def _format_output(self, df: pd.DataFrame) -> pd.DataFrame:
+    result = pd.DataFrame(index=df.index)
+    result["report_period_id"] = ...
+    result["cluster_id"] = ...
+    # ... other columns ...
+    result["all_labels"] = "{}"
+    # ❌ No uuid generation!
+    return result
+```
+
+**Fixed Code:**
+```python
+import uuid as uuid_lib  # Add at top of file
+
+def _format_output(self, df: pd.DataFrame) -> pd.DataFrame:
+    result = pd.DataFrame(index=df.index)
+    result["report_period_id"] = ...
+    result["cluster_id"] = ...
+    # ... other columns ...
+    result["all_labels"] = "{}"
+    # ✅ Generate UUIDs
+    result["uuid"] = [str(uuid_lib.uuid4()) for _ in range(len(result))]
+    return result
+```
+
+**Fix Applied In Commit:** `903e5caa`
+
+---
+
