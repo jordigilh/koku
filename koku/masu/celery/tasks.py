@@ -65,10 +65,19 @@ def check_report_updates(*args, **kwargs):
 @celery_app.task(name="masu.celery.tasks.remove_expired_data", queue=DEFAULT)
 def remove_expired_data(simulate=False):
     """Scheduled task to initiate a job to remove expired report data."""
+    import os
+
     LOG.info("removing expired data")
     orchestrator = Orchestrator()
     orchestrator.remove_expired_report_data(simulate)
-    orchestrator.remove_expired_trino_partitions(simulate)
+
+    # Skip Trino partition cleanup when Python Aggregator is enabled
+    # Trino partitions are only needed for Hive-based processing
+    use_python_aggregator = os.getenv("USE_PYTHON_AGGREGATOR", "false").lower() == "true"
+    if use_python_aggregator:
+        LOG.info("Skipping Trino partition cleanup - Python Aggregator is enabled (USE_PYTHON_AGGREGATOR=true)")
+    else:
+        orchestrator.remove_expired_trino_partitions(simulate)
 
 
 @celery_app.task(name="masu.celery.tasks.purge_trino_files", queue=DEFAULT)
