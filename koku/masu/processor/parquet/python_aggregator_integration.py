@@ -200,8 +200,7 @@ def process_ocp_parquet(
         )
 
         unalloc_result_df = unalloc_agg.calculate_unallocated(
-            pod_summary_df=pod_result_df,
-            node_capacity_df=node_capacity_df,
+            daily_summary_df=pod_result_df,
             node_roles_df=node_roles_df,
         )
 
