@@ -1800,7 +1800,7 @@ A commit was added to skip the monthly Trino partition cleanup task when Python 
 def remove_expired_data(simulate=False):
     orchestrator = Orchestrator()
     orchestrator.remove_expired_report_data(simulate)
-    
+
     # Skip Trino partition cleanup when Python Aggregator is enabled
     use_python_aggregator = os.getenv("USE_PYTHON_AGGREGATOR", "false").lower() == "true"
     if use_python_aggregator:

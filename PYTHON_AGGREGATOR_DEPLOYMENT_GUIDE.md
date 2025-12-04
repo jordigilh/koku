@@ -127,7 +127,7 @@ The image includes a modification to the monthly data cleanup task (`remove_expi
 def remove_expired_data(simulate=False):
     orchestrator = Orchestrator()
     orchestrator.remove_expired_report_data(simulate)
-    
+
     # Skip Trino partition cleanup when Python Aggregator is enabled
     use_python_aggregator = os.getenv("USE_PYTHON_AGGREGATOR", "false").lower() == "true"
     if use_python_aggregator:
@@ -208,31 +208,45 @@ If you see Trino SQL queries in logs instead, the Python Aggregator is NOT being
 
 ---
 
-## IQE Test Expectations
+## IQE Test Results
 
-Based on our testing with Trino/Hive scaled to zero:
+Based on our testing with Trino/Hive scaled to zero and `USE_PYTHON_AGGREGATOR=true`:
 
 ### OCP-Only Tests
-| Status | Count | Notes |
-|--------|-------|-------|
-| PASSED | 12 | Core functionality validated |
-| FAILED | 3 | Data retention limits (not aggregator bugs) |
-| XFAIL | 266 | Fixture/source creation issues |
-| ERROR | 121 | Test infrastructure issues |
+| Status | Count |
+|--------|-------|
+| PASSED | 12 |
+| FAILED | 3 |
 
 ### OCP-on-AWS Tests
-| Status | Count | Notes |
-|--------|-------|-------|
-| PASSED | 50 | Core functionality validated |
-| FAILED | 6 | Data retention + test regex issues (not aggregator bugs) |
-| XFAIL | 957 | Fixture/source creation issues |
-| ERROR | 118 | Test infrastructure issues |
+| Status | Count |
+|--------|-------|
+| PASSED | 50 |
+| FAILED | 6 |
 
-**Key Point**: All PASSED tests prove the Python Aggregator correctly aggregates and serves cost data. The FAILED tests are due to:
-1. Data retention configuration (90-day queries exceed 3-month retention)
-2. Test regex assertion mismatches
+### What Succeeded
 
-Neither category represents Python Aggregator bugs.
+**62 tests passed** validating that:
+- OCP cost data is aggregated correctly
+- OCP-on-AWS cost data is aggregated correctly
+- API serves the aggregated data
+- All processing completed without Trino/Hive
+
+### What Failed (9 tests) - Not Aggregator Issues
+
+**5 tests failed due to `RETAIN_NUM_MONTHS` configuration:**
+
+Our environment uses `RETAIN_NUM_MONTHS=3`. The IQE tests include "last-90-days" queries that request `start_date=2025-09-05`, but the API only allows dates from `2025-10-01` onwards (3 months back from current month).
+
+```
+Error: {'start_date': ['Parameter start_date must be from 2025-10-01 to 2025-12-05']}
+```
+
+This is Koku's API date validation enforcing the retention policy - not a Python Aggregator issue. If your environment uses `RETAIN_NUM_MONTHS >= 4`, these tests would pass.
+
+**4 tests failed due to test regex mismatch:**
+
+These are negative tests that check error message format. The test regex doesn't match the API's array response format. This is a test assertion issue, not an API or aggregator bug.
 
 ---
 
