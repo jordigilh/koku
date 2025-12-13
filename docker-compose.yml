@@ -216,9 +216,11 @@ services:
       - UNLEASH_PORT=${UNLEASH_PORT-4242}
       - UNLEASH_TOKEN=${UNLEASH_TOKEN:?}
       - ENHANCED_ORG_ADMIN=${ENHANCED_ORG_ADMIN-True}
+    # FIXED: Port mapping corrected to match range lengths (20 host ports → 20 container ports)
+    # Each scaled worker gets unique ports for metrics (6001-6020 → 9000-9019) and debugging (5678-5697)
     ports:
-      - 6001-6020:9000
-      - 5678:5678
+      - 6001-6020:9000-9019
+      - 5678-5697:5678-5697
     volumes:
       - "./koku:/koku/koku"
       - "./dev/containers/unleash:/koku/.unleash"
