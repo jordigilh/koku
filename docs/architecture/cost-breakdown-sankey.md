@@ -141,6 +141,15 @@ Sankey view and Level 2 for drill-down.
 | R9 | Backward compatibility | Existing API fields (`cost.raw`, `cost.usage`, `cost.markup`, etc.) continue to work unchanged |
 | R10 | Individual rate breakout | When multiple rates exist for the same metric+cost_type, each appears as a separate entry (not summed) |
 
+### Phase 1 Scope Notes
+
+- **VM hourly usage costs** (`vm_cost_per_hour`, `vm_core_cost_per_hour`) are **in scope** using a Postgres proxy approach. The current Trino SQL (`hourly_cost_virtual_machine.sql`, `hourly_vm_core.sql`) depends on `openshift_vm_usage_line_items` data that exists only in Hive/Trino. For the Postgres PoC, we use existing data from `reporting_ocpusagelineitem_daily_summary` (VM pods are already present with `pod_labels->>'vm_kubevirt_io_name'`):
+  - **`OCP_VM_HOUR`**: Cost = `24 * hourly_rate` per VM per day (assumes full-day uptime, consistent with the Trino fallback path that counts intervals)
+  - **`OCP_VM_CORE_HOUR`**: Cost = `pod_request_cpu_core_hours * hourly_rate` (pod_request_cpu_core_hours ≈ hours_active × cpu_cores_requested, a good proxy for `vm_hours × vm_cpu_cores`)
+  - New Postgres SQL files: `usage_costs_virtual_machine.sql`, `usage_costs_vm_core.sql` (following the `monthly_cost_virtual_machine.sql` pattern)
+  - This avoids creating a new data pipeline or Postgres staging table; full Trino parity can be added later
+- **Default tag rates** (`populate_tag_usage_default_costs`) are in scope. They write to the same table as regular tag rates and must carry `cost_breakdown_source` for Sankey completeness. Default rates use the rate-level description (since there is no specific tag-value for the "default" catch-all), falling back to metric name.
+
 ### Phase 2: Cloud Service Constituents (Future)
 
 | ID | Requirement | Details |
@@ -912,13 +921,13 @@ No changes needed to:
 
 | File | Change |
 |------|--------|
-| `koku/masu/processor/ocp/ocp_cost_model_cost_updater.py` | Load `itemized_rates` in `__init__`, modify `_update_usage_costs` for per-rate execution, add `cost_breakdown_source` to `_update_monthly_cost`; modify `_update_tag_usage_costs` and `_update_monthly_tag_based_cost` to extract and pass tag-value/rate description |
+| `koku/masu/processor/ocp/ocp_cost_model_cost_updater.py` | Load `itemized_rates` in `__init__`, modify `_update_usage_costs` for per-rate execution (including VM hourly via Postgres proxy), add `cost_breakdown_source` to `_update_monthly_cost`; modify `_update_tag_usage_costs`, `_update_tag_usage_default_costs`, and `_update_monthly_tag_based_cost` to extract and pass tag-value/rate description |
 
 ### DB Accessor
 
 | File | Change |
 |------|--------|
-| `koku/masu/database/ocp_report_db_accessor.py` | Add `delete_usage_costs` method (extracted from `usage_costs.sql`), add `cost_breakdown_source` parameter to `populate_usage_costs`, `populate_monthly_cost_sql`, `populate_tag_usage_costs`, `populate_distributed_cost_sql` (no markup change — markup remains an UPDATE without touching `cost_breakdown_source`) |
+| `koku/masu/database/ocp_report_db_accessor.py` | Add `delete_usage_costs` method (extracted from `usage_costs.sql`), add `cost_breakdown_source` parameter to `populate_usage_costs`, `populate_monthly_cost_sql`, `populate_tag_usage_costs`, `populate_tag_usage_default_costs`, `populate_distributed_cost_sql`; add `populate_vm_usage_costs_postgres` method for Postgres proxy VM hourly costs (no markup change — markup remains an UPDATE without touching `cost_breakdown_source`) |
 
 ### SQL Templates
 
@@ -928,12 +937,16 @@ No changes needed to:
 | `koku/masu/database/sql/openshift/cost_model/monthly_cost_cluster_and_node.sql` | Add `cost_breakdown_source` to INSERT/SELECT |
 | `koku/masu/database/sql/openshift/cost_model/monthly_cost_persistentvolumeclaim.sql` | Add `cost_breakdown_source` to INSERT/SELECT |
 | `koku/masu/database/sql/openshift/cost_model/monthly_cost_virtual_machine.sql` | Add `cost_breakdown_source` to INSERT/SELECT |
+| `koku/masu/database/sql/openshift/cost_model/usage_costs_virtual_machine.sql` | **New file** — Postgres proxy for `OCP_VM_HOUR` hourly costs using daily summary data; includes `cost_breakdown_source` |
+| `koku/masu/database/sql/openshift/cost_model/usage_costs_vm_core.sql` | **New file** — Postgres proxy for `OCP_VM_CORE_HOUR` costs using `pod_request_cpu_core_hours` as proxy; includes `cost_breakdown_source` |
 | `koku/masu/database/sql/openshift/cost_model/distribute_cost/distribute_platform_cost.sql` | Add `cost_breakdown_source` |
 | `koku/masu/database/sql/openshift/cost_model/distribute_cost/distribute_worker_cost.sql` | Add `cost_breakdown_source` |
 | `koku/masu/database/sql/openshift/cost_model/distribute_cost/distribute_unattributed_storage_cost.sql` | Add `cost_breakdown_source` |
 | `koku/masu/database/sql/openshift/cost_model/distribute_cost/distribute_unattributed_network_cost.sql` | Add `cost_breakdown_source` |
 | `koku/masu/database/sql/openshift/cost_model/infrastructure_tag_rates.sql` | Add `cost_breakdown_source` |
 | `koku/masu/database/sql/openshift/cost_model/supplementary_tag_rates.sql` | Add `cost_breakdown_source` |
+| `koku/masu/database/sql/openshift/cost_model/default_infrastructure_tag_rates.sql` | Add `cost_breakdown_source` |
+| `koku/masu/database/sql/openshift/cost_model/default_supplementary_tag_rates.sql` | Add `cost_breakdown_source` |
 
 ### UI Summary SQL
 
@@ -955,9 +968,9 @@ No changes needed to:
 | File | Change |
 |------|--------|
 | `koku/cost_models/test/test_serializers.py` | Test description required validation |
-| `koku/masu/test/database/test_cost_model_db_accessor.py` | Test `itemized_rates` property |
-| `koku/masu/test/processor/ocp/test_ocp_cost_model_cost_updater.py` | Test per-rate execution, description propagation |
-| `koku/masu/test/database/test_ocp_report_db_accessor.py` | Test `cost_breakdown_source` in SQL outputs |
+| `koku/masu/test/database/test_cost_model_db_accessor.py` | Test `itemized_rates` property; test `tag_default_*_rates` description propagation |
+| `koku/masu/test/processor/ocp/test_ocp_cost_model_cost_updater.py` | Test per-rate execution, description propagation including default tag rates |
+| `koku/masu/test/database/test_ocp_report_db_accessor.py` | Test `cost_breakdown_source` in SQL outputs including default tag rates |
 | `koku/api/report/test/ocp/test_ocp_query_handler.py` | Test `cost_breakdown` in API response |
 | `koku/api/report/test/ocp/view/test_views.py` | Integration test for cost breakdown endpoint |
 
@@ -994,6 +1007,12 @@ This ensures all old data is cleaned up regardless of description changes, and n
 ---
 
 ## Changelog
+
+### v1.5 — 2026-02-13
+
+- **Default tag rates in scope** — added `populate_tag_usage_default_costs`, `_update_tag_usage_default_costs`, `default_infrastructure_tag_rates.sql`, and `default_supplementary_tag_rates.sql` to affected files. Default tag rates write to the same table as regular tag rates and must carry `cost_breakdown_source` for Sankey completeness. Default rates use the rate-level description, falling back to metric name.
+- **VM hourly usage costs in scope via Postgres proxy** — replaced "out of scope" with a Postgres proxy approach that uses existing data from `reporting_ocpusagelineitem_daily_summary`. `OCP_VM_HOUR` uses 24h/day assumption; `OCP_VM_CORE_HOUR` uses `pod_request_cpu_core_hours` as proxy. Two new Postgres SQL files: `usage_costs_virtual_machine.sql`, `usage_costs_vm_core.sql`. This avoids a new data pipeline while providing reasonable accuracy for the PoC. Full Trino parity can be added later.
+- **Updated affected files** — Cost updater now includes `_update_tag_usage_default_costs` and VM hourly via Postgres proxy; DB accessor now includes `populate_tag_usage_default_costs` and `populate_vm_usage_costs_postgres`; SQL templates now include `default_infrastructure_tag_rates.sql`, `default_supplementary_tag_rates.sql`, `usage_costs_virtual_machine.sql`, and `usage_costs_vm_core.sql`; test files updated to reflect default tag rate and VM coverage.
 
 ### v1.4 — 2026-02-06
 
