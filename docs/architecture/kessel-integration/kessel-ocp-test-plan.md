@@ -459,12 +459,36 @@ Coverage target: >80% on `koku/kessel/` module.
 
 ---
 
-### UT-KESSEL-SEED-002: kessel_seed_roles creates standard roles
+### UT-KESSEL-SEED-002: kessel_seed_roles creates all 5 SaaS production roles
 
 | Field | Value |
 |-------|-------|
-| Priority | P1 (High) |
-| Business Value | Standard roles must be available for administrators to assign to users |
+| Priority | P0 (Critical) |
+| Business Value | Role instances must match SaaS production exactly. Mismatched roles would cause authorization failures when integrating with real Kessel |
+| Phase | 1 |
+
+**Fixtures:**
+- `TestCase` base class
+- `@override_settings(AUTHORIZATION_BACKEND="rebac")`
+- `@patch("kessel.client.get_kessel_client")` with mock client that records `create_tuples` calls
+
+**Steps:**
+- **Given** `AUTHORIZATION_BACKEND="rebac"` and a mocked Kessel client
+- **When** `kessel_seed_roles` management command is executed with default (embedded) roles
+- **Then** `client.create_tuples` is called for each of the 5 standard roles
+
+**Acceptance Criteria:**
+- Exactly 5 roles seeded: `cost-administrator`, `cost-openshift-viewer`, `cost-price-list-administrator`, `cost-price-list-viewer`, `cost-cloud-viewer`
+- Command is idempotent (`upsert=True` used, can run twice without error)
+
+---
+
+### UT-KESSEL-SEED-003: Cost Administrator role gets all 23 cost_management relations
+
+| Field | Value |
+|-------|-------|
+| Priority | P0 (Critical) |
+| Business Value | The admin role must have every cost_management permission from the production schema. Missing one means admins lose access to that resource type |
 | Phase | 1 |
 
 **Fixtures:**
@@ -474,12 +498,83 @@ Coverage target: >80% on `koku/kessel/` module.
 
 **Steps:**
 - **Given** `AUTHORIZATION_BACKEND="rebac"` and a mocked Kessel client
-- **When** `kessel_seed_roles` management command is executed
-- **Then** `client.create_role` is called for each standard role
+- **When** `kessel_seed_roles` command is executed
+- **Then** the tuples created for `rbac/role:cost-administrator` include all 23 `t_cost_management_*` relations from the production schema
 
 **Acceptance Criteria:**
-- All standard roles (viewer, editor, admin) are seeded
-- Command is idempotent (can run twice without error)
+- Exactly 23 relation tuples created for `cost-administrator`
+- Includes: `t_cost_management_all_all`, `t_cost_management_aws_account_all`, `t_cost_management_aws_account_read`, `t_cost_management_aws_organizational_unit_all`, `t_cost_management_aws_organizational_unit_read`, `t_cost_management_azure_subscription_guid_all`, `t_cost_management_azure_subscription_guid_read`, `t_cost_management_cost_model_all`, `t_cost_management_cost_model_read`, `t_cost_management_cost_model_write`, `t_cost_management_gcp_account_all`, `t_cost_management_gcp_account_read`, `t_cost_management_gcp_project_all`, `t_cost_management_gcp_project_read`, `t_cost_management_openshift_cluster_all`, `t_cost_management_openshift_cluster_read`, `t_cost_management_openshift_node_all`, `t_cost_management_openshift_node_read`, `t_cost_management_openshift_project_all`, `t_cost_management_openshift_project_read`, `t_cost_management_settings_all`, `t_cost_management_settings_read`, `t_cost_management_settings_write`
+
+---
+
+### UT-KESSEL-SEED-004: Cost OpenShift Viewer role gets exactly 2 OCP relations
+
+| Field | Value |
+|-------|-------|
+| Priority | P1 (High) |
+| Business Value | The OCP viewer role must grant only cluster read/all permissions, not cloud or settings permissions |
+| Phase | 1 |
+
+**Fixtures:**
+- `TestCase` base class
+- `@override_settings(AUTHORIZATION_BACKEND="rebac")`
+- `@patch("kessel.client.get_kessel_client")` with mock client
+
+**Steps:**
+- **Given** `AUTHORIZATION_BACKEND="rebac"` and a mocked Kessel client
+- **When** `kessel_seed_roles` command is executed
+- **Then** the tuples created for `rbac/role:cost-openshift-viewer` include exactly `t_cost_management_openshift_cluster_all` and `t_cost_management_openshift_cluster_read`
+
+**Acceptance Criteria:**
+- Exactly 2 relation tuples created for `cost-openshift-viewer`
+- No `aws`, `azure`, `gcp`, `cost_model`, or `settings` relations present
+
+---
+
+### UT-KESSEL-SEED-005: Permission mapping covers all RBAC permission strings from cost-management.json
+
+| Field | Value |
+|-------|-------|
+| Priority | P0 (Critical) |
+| Business Value | Any RBAC permission string in the SaaS role definitions must have a mapping. Unmapped permissions silently grant no Kessel access |
+| Phase | 1 |
+
+**Fixtures:**
+- `TestCase` base class
+
+**Steps:**
+- **Given** the `RBAC_PERMISSION_TO_KESSEL_RELATIONS` mapping constant and the `STANDARD_ROLES` constant
+- **When** all RBAC permission strings from every role's `access` list are collected
+- **Then** every permission string has an entry in `RBAC_PERMISSION_TO_KESSEL_RELATIONS`
+
+**Acceptance Criteria:**
+- No `KeyError` for any permission string in any role
+- All 7 unique permission patterns from `cost-management.json` are mapped: `cost-management:*:*`, `cost-management:cost_model:*`, `cost-management:cost_model:read`, `cost-management:settings:*`, `cost-management:settings:read`, `cost-management:openshift.cluster:*`, `cost-management:aws.account:*` (plus remaining cloud types)
+
+---
+
+### UT-KESSEL-SEED-006: kessel_seed_roles loads roles from custom file path
+
+| Field | Value |
+|-------|-------|
+| Priority | P2 (Medium) |
+| Business Value | Air-gapped deployments need to load roles from a local file, not GitHub |
+| Phase | 1 |
+
+**Fixtures:**
+- `TestCase` base class
+- `@override_settings(AUTHORIZATION_BACKEND="rebac")`
+- `@patch("kessel.client.get_kessel_client")` with mock client
+- Temporary JSON file with custom roles
+
+**Steps:**
+- **Given** `AUTHORIZATION_BACKEND="rebac"` and a temp file containing `cost-management.json` content
+- **When** `kessel_seed_roles --roles-file /tmp/custom-roles.json` is executed
+- **Then** roles are loaded from the file and seeded
+
+**Acceptance Criteria:**
+- Roles loaded from file, not from embedded constant
+- Same seeding logic applies (permission mapping, tuple creation)
 
 ---
 
@@ -1080,11 +1175,11 @@ Requires full Kessel stack deployed on OCP: relations-api + inventory-api + Spic
 
 | Tier | Count | P0 | P1 | P2 | P3 |
 |------|-------|----|----|----|-----|
-| UT   | 17    | 6  | 8  | 3  | 0   |
-| IT   | 9     | 2  | 7  | 0  | 0   |
+| UT   | 24    | 11 | 9  | 4  | 0   |
+| IT   | 10    | 2  | 8  | 0  | 0   |
 | CT   | 3     | 2  | 1  | 0  | 0   |
 | E2E  | 6     | 2  | 4  | 0  | 0   |
-| **Total** | **35** | **12** | **20** | **3** | **0** |
+| **Total** | **43** | **17** | **22** | **4** | **0** |
 
 ### 6.2 Phase Coverage
 

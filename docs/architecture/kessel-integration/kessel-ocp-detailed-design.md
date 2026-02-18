@@ -585,60 +585,260 @@ This is called from `POST /role-bindings/` and `DELETE /role-bindings/{id}/` vie
 
 ## 8. ZED Schema and Role Seeding
 
-### 8.1 ZED Schema
+### 8.1 Production ZED Schema (Current State)
 
-Additions to the `rbac-config` repo (external). Resource types follow the `cost_management/` namespace:
+Source: [`RedHatInsights/rbac-config/configs/prod/schemas/schema.zed`](https://github.com/RedHatInsights/rbac-config/blob/master/configs/prod/schemas/schema.zed)
 
-- `cost_management/openshift_cluster`
-- `cost_management/openshift_node`
-- `cost_management/openshift_project`
-- `cost_management/cost_model`
-- `cost_management/settings`
-- `cost_management/aws_account`
-- `cost_management/aws_organizational_unit`
-- `cost_management/azure_subscription`
-- `cost_management/gcp_account`
-- `cost_management/gcp_project`
+The production schema already defines **23 cost_management permissions** on `rbac/role` (lines 163-208):
 
-Each resource type defines:
-- Relations: `viewer`, `editor`
-- Permissions: `read` (from `viewer`), `all` (from `editor`)
-- Org link: `relation org: rbac/tenant`
+```zed
+definition rbac/role {
+    ...
+    permission cost_management_all_all = t_cost_management_all_all
+    relation t_cost_management_all_all: rbac/principal:*
+    permission cost_management_aws_account_all = t_cost_management_aws_account_all
+    relation t_cost_management_aws_account_all: rbac/principal:*
+    permission cost_management_aws_account_read = t_cost_management_aws_account_read
+    relation t_cost_management_aws_account_read: rbac/principal:*
+    permission cost_management_aws_organizational_unit_all = t_cost_management_aws_organizational_unit_all
+    relation t_cost_management_aws_organizational_unit_all: rbac/principal:*
+    permission cost_management_aws_organizational_unit_read = t_cost_management_aws_organizational_unit_read
+    relation t_cost_management_aws_organizational_unit_read: rbac/principal:*
+    permission cost_management_azure_subscription_guid_all = t_cost_management_azure_subscription_guid_all
+    relation t_cost_management_azure_subscription_guid_all: rbac/principal:*
+    permission cost_management_azure_subscription_guid_read = t_cost_management_azure_subscription_guid_read
+    relation t_cost_management_azure_subscription_guid_read: rbac/principal:*
+    permission cost_management_cost_model_all = t_cost_management_cost_model_all
+    relation t_cost_management_cost_model_all: rbac/principal:*
+    permission cost_management_cost_model_read = t_cost_management_cost_model_read
+    relation t_cost_management_cost_model_read: rbac/principal:*
+    permission cost_management_cost_model_write = t_cost_management_cost_model_write
+    relation t_cost_management_cost_model_write: rbac/principal:*
+    permission cost_management_gcp_account_all = t_cost_management_gcp_account_all
+    relation t_cost_management_gcp_account_all: rbac/principal:*
+    permission cost_management_gcp_account_read = t_cost_management_gcp_account_read
+    relation t_cost_management_gcp_account_read: rbac/principal:*
+    permission cost_management_gcp_project_all = t_cost_management_gcp_project_all
+    relation t_cost_management_gcp_project_all: rbac/principal:*
+    permission cost_management_gcp_project_read = t_cost_management_gcp_project_read
+    relation t_cost_management_gcp_project_read: rbac/principal:*
+    permission cost_management_openshift_cluster_all = t_cost_management_openshift_cluster_all
+    relation t_cost_management_openshift_cluster_all: rbac/principal:*
+    permission cost_management_openshift_cluster_read = t_cost_management_openshift_cluster_read
+    relation t_cost_management_openshift_cluster_read: rbac/principal:*
+    permission cost_management_openshift_node_all = t_cost_management_openshift_node_all
+    relation t_cost_management_openshift_node_all: rbac/principal:*
+    permission cost_management_openshift_node_read = t_cost_management_openshift_node_read
+    relation t_cost_management_openshift_node_read: rbac/principal:*
+    permission cost_management_openshift_project_all = t_cost_management_openshift_project_all
+    relation t_cost_management_openshift_project_all: rbac/principal:*
+    permission cost_management_openshift_project_read = t_cost_management_openshift_project_read
+    relation t_cost_management_openshift_project_read: rbac/principal:*
+    permission cost_management_settings_all = t_cost_management_settings_all
+    relation t_cost_management_settings_all: rbac/principal:*
+    permission cost_management_settings_read = t_cost_management_settings_read
+    relation t_cost_management_settings_read: rbac/principal:*
+    permission cost_management_settings_write = t_cost_management_settings_write
+    relation t_cost_management_settings_write: rbac/principal:*
+    ...
+}
+```
 
-### 8.2 Authorization Hierarchy
+**Gap**: These permissions exist on `rbac/role` but are **NOT yet wired** through `rbac/role_binding` or `rbac/tenant`. The `role_binding` and `tenant` definitions in prod only propagate permissions for other services (HBI, notifications, etc.), not cost management. This means the authorization chain `principal -> role_binding -> tenant` cannot yet evaluate cost management permissions. Completing this wiring is part of the schema PR to `rbac-config`.
+
+### 8.2 SaaS Role Definitions
+
+Source: [`RedHatInsights/rbac-config/configs/prod/roles/cost-management.json`](https://github.com/RedHatInsights/rbac-config/blob/master/configs/prod/roles/cost-management.json)
+
+These are the 5 standard roles used in SaaS production. Our `kessel_seed_roles` command must create these exact role instances with the exact same permission mappings:
+
+| Role name | RBAC slug | RBAC permissions | Description |
+|---|---|---|---|
+| Cost Administrator | `cost-administrator` | `cost-management:*:*` | All cost management permissions |
+| Cost Price List Administrator | `cost-price-list-administrator` | `cost-management:cost_model:*`, `cost-management:settings:*` | Cost model and settings read/write |
+| Cost Price List Viewer | `cost-price-list-viewer` | `cost-management:cost_model:read`, `cost-management:settings:read` | Cost model and settings read-only |
+| Cost Cloud Viewer | `cost-cloud-viewer` | `cost-management:aws.account:*`, `cost-management:aws.organizational_unit:*`, `cost-management:azure.subscription_guid:*`, `cost-management:gcp.account:*`, `cost-management:gcp.project:*` | All cloud resource types |
+| Cost OpenShift Viewer | `cost-openshift-viewer` | `cost-management:openshift.cluster:*` | OpenShift cluster read/all |
+
+### 8.3 RBAC Permission to Kessel Relation Mapping
+
+The `kessel_seed_roles` command translates RBAC permission strings from `cost-management.json` into Kessel relation names on `rbac/role`. This mapping is defined as a constant in `koku/kessel/management/commands/kessel_seed_roles.py`:
+
+```python
+RBAC_PERMISSION_TO_KESSEL_RELATIONS = {
+    "cost-management:*:*": [
+        "t_cost_management_all_all",
+        "t_cost_management_aws_account_all",
+        "t_cost_management_aws_account_read",
+        "t_cost_management_aws_organizational_unit_all",
+        "t_cost_management_aws_organizational_unit_read",
+        "t_cost_management_azure_subscription_guid_all",
+        "t_cost_management_azure_subscription_guid_read",
+        "t_cost_management_cost_model_all",
+        "t_cost_management_cost_model_read",
+        "t_cost_management_cost_model_write",
+        "t_cost_management_gcp_account_all",
+        "t_cost_management_gcp_account_read",
+        "t_cost_management_gcp_project_all",
+        "t_cost_management_gcp_project_read",
+        "t_cost_management_openshift_cluster_all",
+        "t_cost_management_openshift_cluster_read",
+        "t_cost_management_openshift_node_all",
+        "t_cost_management_openshift_node_read",
+        "t_cost_management_openshift_project_all",
+        "t_cost_management_openshift_project_read",
+        "t_cost_management_settings_all",
+        "t_cost_management_settings_read",
+        "t_cost_management_settings_write",
+    ],
+    "cost-management:cost_model:*": [
+        "t_cost_management_cost_model_all",
+        "t_cost_management_cost_model_read",
+        "t_cost_management_cost_model_write",
+    ],
+    "cost-management:cost_model:read": [
+        "t_cost_management_cost_model_read",
+    ],
+    "cost-management:settings:*": [
+        "t_cost_management_settings_all",
+        "t_cost_management_settings_read",
+        "t_cost_management_settings_write",
+    ],
+    "cost-management:settings:read": [
+        "t_cost_management_settings_read",
+    ],
+    "cost-management:aws.account:*": [
+        "t_cost_management_aws_account_all",
+        "t_cost_management_aws_account_read",
+    ],
+    "cost-management:aws.organizational_unit:*": [
+        "t_cost_management_aws_organizational_unit_all",
+        "t_cost_management_aws_organizational_unit_read",
+    ],
+    "cost-management:azure.subscription_guid:*": [
+        "t_cost_management_azure_subscription_guid_all",
+        "t_cost_management_azure_subscription_guid_read",
+    ],
+    "cost-management:gcp.account:*": [
+        "t_cost_management_gcp_account_all",
+        "t_cost_management_gcp_account_read",
+    ],
+    "cost-management:gcp.project:*": [
+        "t_cost_management_gcp_project_all",
+        "t_cost_management_gcp_project_read",
+    ],
+    "cost-management:openshift.cluster:*": [
+        "t_cost_management_openshift_cluster_all",
+        "t_cost_management_openshift_cluster_read",
+    ],
+}
+```
+
+### 8.4 Role Seeding Process
+
+For each role in `cost-management.json`, the seeding command:
+
+1. Creates the role instance tuple: `rbac/role:{slug}` (implicit on first relation write)
+2. For each RBAC permission in the role's `access` list:
+   - Looks up the corresponding Kessel relations from `RBAC_PERMISSION_TO_KESSEL_RELATIONS`
+   - Creates a tuple: `rbac/role:{slug}#{relation} rbac/principal:*`
+
+**Example**: Seeding "Cost OpenShift Viewer" (`cost-openshift-viewer`):
+
+```python
+# Permission: cost-management:openshift.cluster:*
+# Maps to: t_cost_management_openshift_cluster_all, t_cost_management_openshift_cluster_read
+
+client.create_tuples([
+    # Grant the role the openshift cluster 'all' permission
+    Tuple(
+        subject=SubjectReference(subject=ObjectReference(type="rbac/principal", id="*")),
+        relation="t_cost_management_openshift_cluster_all",
+        resource=ObjectReference(type="rbac/role", id="cost-openshift-viewer"),
+    ),
+    # Grant the role the openshift cluster 'read' permission
+    Tuple(
+        subject=SubjectReference(subject=ObjectReference(type="rbac/principal", id="*")),
+        relation="t_cost_management_openshift_cluster_read",
+        resource=ObjectReference(type="rbac/role", id="cost-openshift-viewer"),
+    ),
+])
+```
+
+### 8.5 Roles Source
+
+The command supports two sources for role definitions:
+
+- **Default**: Embedded `STANDARD_ROLES` constant derived from production `cost-management.json` (no network required, suitable for air-gapped deployments)
+- **`--roles-url` flag**: Fetch from `https://raw.githubusercontent.com/RedHatInsights/rbac-config/master/configs/prod/roles/cost-management.json` (always current, requires network)
+- **`--roles-file` flag**: Load from a local file path (for custom role sets or testing)
+
+The embedded constant is the default to ensure the command works in air-gapped on-prem environments. It must be kept in sync with the upstream `cost-management.json` when roles change.
+
+### 8.6 Authorization Hierarchy
 
 Resources are linked directly to the tenant (org-level). Kessel workspaces are not used.
 
 ```
-principal -> role_binding -> tenant -> cost_management/openshift_cluster
+principal -> role_binding -> role -> permissions
+                         -> tenant (scope)
+```
+
+The authorization chain in the production schema follows:
+
+```mermaid
+flowchart LR
+    Principal["rbac/principal:alice"]
+    RoleBinding["rbac/role_binding:alice-viewer"]
+    Role["rbac/role:cost-openshift-viewer"]
+    Tenant["rbac/tenant:org-123"]
+
+    Principal -->|"t_subject"| RoleBinding
+    RoleBinding -->|"t_role"| Role
+    RoleBinding -->|"scope (t_binding on tenant)"| Tenant
+    Role -->|"t_cost_management_openshift_cluster_read"| AllPrincipals["rbac/principal:*"]
 ```
 
 **Workspaces exclusion rationale**: Kessel workspaces (`rbac/workspace`) are organizational containers between tenant and resources, used by inventory services (HBI, ACM) for sub-org grouping. Cost management resources don't need sub-org segmentation -- all resources are at the org level. If a future requirement for cluster grouping (e.g., "production" vs "staging") emerges, workspaces can be added as a layer between tenant and resources without breaking the existing model.
 
-### 8.3 Schema Upgrade Strategy
+### 8.7 Schema Upgrade Strategy
 
 - **Additive-only policy**: Schema changes only add new types, relations, or permissions. Never remove or rename existing ones.
 - **Version tracking**: `KESSEL_SCHEMA_VERSION` env var compared against the deployed schema version.
 - **Management command**: `kessel_update_schema` applies pending schema changes. Designed as a Helm post-upgrade hook.
 
-### 8.4 Management Commands
+### 8.8 Management Commands
 
 New files in `koku/kessel/management/commands/`:
 
-**`kessel_seed_roles`** -- idempotent, creates standard role definitions at deploy time:
+**`kessel_seed_roles`** -- idempotent, creates standard role instances from SaaS role definitions:
 
 ```python
 class Command(BaseCommand):
-    help = "Seed standard Kessel roles for Cost Management"
+    help = "Seed standard Kessel roles for Cost Management from rbac-config definitions"
+
+    def add_arguments(self, parser):
+        parser.add_argument("--roles-url", type=str, help="URL to fetch roles JSON")
+        parser.add_argument("--roles-file", type=str, help="Path to local roles JSON")
+        parser.add_argument("--dry-run", action="store_true", help="Show what would be created")
 
     def handle(self, *args, **options):
         if settings.AUTHORIZATION_BACKEND != "rebac":
             self.stdout.write("Skipping: AUTHORIZATION_BACKEND is not rebac")
             return
+        roles = self._load_roles(options)
         client = get_kessel_client()
-        for role_name, permissions in STANDARD_ROLES.items():
-            client.create_role(role_name, permissions)
-            self.stdout.write(f"Seeded role: {role_name}")
+        for role in roles:
+            slug = self._to_slug(role["name"])
+            kessel_relations = self._resolve_permissions(role["access"])
+            if options["dry_run"]:
+                self.stdout.write(f"Would seed role: {slug} with {len(kessel_relations)} relations")
+                continue
+            client.create_tuples(
+                self._build_role_tuples(slug, kessel_relations),
+                upsert=True,
+            )
+            self.stdout.write(f"Seeded role: {slug} ({len(kessel_relations)} relations)")
 ```
 
 Designed as a Helm post-install hook.
@@ -817,7 +1017,35 @@ Key methods:
 - `ReportResource` -- report resource existence to Kessel
 - `DeleteResource` -- remove resource from Kessel (not used in current scope)
 
-### 11.4 External Tooling (Operator Use)
+### 11.4 External Schema Dependency (Blocking)
+
+The production ZED schema in [`rbac-config`](https://github.com/RedHatInsights/rbac-config) defines 23 `cost_management_*` permissions on `rbac/role` but does **not** propagate them through `rbac/role_binding` or `rbac/tenant`. This means `LookupResources()` cannot evaluate cost management permissions even when role bindings exist.
+
+**Required changes** (PR to `rbac-config`):
+
+1. `rbac/role_binding` -- add `cost_management_*` permission arrows:
+   ```zed
+   definition rbac/role_binding {
+       ...
+       permission cost_management_openshift_cluster_read = t_role->cost_management_openshift_cluster_read
+       permission cost_management_openshift_cluster_all = t_role->cost_management_openshift_cluster_all
+       // ... all 23 cost_management permissions
+   }
+   ```
+
+2. `rbac/tenant` -- add `cost_management_*` permission arrows from bindings:
+   ```zed
+   definition rbac/tenant {
+       ...
+       permission cost_management_openshift_cluster_read = t_binding->cost_management_openshift_cluster_read
+       permission cost_management_openshift_cluster_all = t_binding->cost_management_openshift_cluster_all
+       // ... all 23 cost_management permissions
+   }
+   ```
+
+Until this PR lands, the E2E flow (`principal -> role_binding -> role -> tenant -> resource`) will not resolve. Unit and integration tests (which mock gRPC) are unaffected.
+
+### 11.5 External Tooling (Operator Use)
 
 - `zed` CLI -- SpiceDB schema writes, relationship creation, backup/restore (Bootstrap Path B)
 - Relations API REST -- `ImportBulkTuples` (`POST /v1beta1/tuples/bulkimport`) for bulk pre-loading
@@ -828,6 +1056,7 @@ Key methods:
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
+| **ZED schema gap: cost_management permissions not wired through role_binding/tenant** | `LookupResources` will not return results even with correct role bindings because the authorization chain is incomplete | Submit a PR to `rbac-config` adding `cost_management_*` permission propagation through `rbac/role_binding` and `rbac/tenant` definitions. This is a **blocking external dependency** |
 | **gRPC in Django WSGI process** | Thread-safety concerns with gRPC channels | Lazy singleton with `threading.Lock`; verify in load tests |
 | **Performance: many LookupResources calls** | Up to 14 resource types x 2 operations = 28 gRPC calls per cache miss | Cache aggressively (300s default); batch where SDK supports it |
 | **Partial LookupResources failure** | One resource type lookup fails mid-request | Fail entire request with HTTP 424, not partial access |
