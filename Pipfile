@@ -52,6 +52,8 @@ kombu = "*"
 pandas = "<3.0"
 scipy = ">=1.16"
 boto3 = "*"
+kessel-sdk = ">=2.1.0"
+relations-grpc-clients-python-kessel-project = ">=0.3.11"
 
 [dev-packages]
 argh = ">=0.26.2"
