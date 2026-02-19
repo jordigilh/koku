@@ -1019,31 +1019,57 @@ Key methods:
 
 ### 11.4 External Schema Dependency (Blocking)
 
-The production ZED schema in [`rbac-config`](https://github.com/RedHatInsights/rbac-config) defines 23 `cost_management_*` permissions on `rbac/role` but does **not** propagate them through `rbac/role_binding` or `rbac/tenant`. This means `LookupResources()` cannot evaluate cost management permissions even when role bindings exist.
+The production ZED schema in [`rbac-config`](https://github.com/RedHatInsights/rbac-config) (`configs/prod/schemas/schema.zed`) defines 23 `cost_management_*` permissions on `rbac/role` but does **not** propagate them through `rbac/role_binding` or `rbac/tenant`. This means `LookupResources()` cannot evaluate cost management permissions even when role bindings exist.
 
-**Required changes** (PR to `rbac-config`):
+**Scope: OCP-only (13 of 23 permissions).** The initial PR targets on-prem OCP environments only. Cloud permissions (AWS, Azure, GCP) are deferred until SaaS onboarding.
 
-1. `rbac/role_binding` -- add `cost_management_*` permission arrows:
+**Jira:** [FLPATH-3319](https://issues.redhat.com/browse/FLPATH-3319)
+
+**Required changes** (PR to [`RedHatInsights/rbac-config`](https://github.com/RedHatInsights/rbac-config)):
+
+1. `rbac/role_binding` -- add 13 OCP-scoped permission arrows using the existing pattern `(subject & t_role->X)`:
    ```zed
    definition rbac/role_binding {
-       ...
-       permission cost_management_openshift_cluster_read = t_role->cost_management_openshift_cluster_read
-       permission cost_management_openshift_cluster_all = t_role->cost_management_openshift_cluster_all
-       // ... all 23 cost_management permissions
+       // ... existing permissions for other services ...
+       permission cost_management_all_all = (subject & t_role->cost_management_all_all)
+       permission cost_management_openshift_cluster_all = (subject & t_role->cost_management_openshift_cluster_all)
+       permission cost_management_openshift_cluster_read = (subject & t_role->cost_management_openshift_cluster_read)
+       permission cost_management_openshift_node_all = (subject & t_role->cost_management_openshift_node_all)
+       permission cost_management_openshift_node_read = (subject & t_role->cost_management_openshift_node_read)
+       permission cost_management_openshift_project_all = (subject & t_role->cost_management_openshift_project_all)
+       permission cost_management_openshift_project_read = (subject & t_role->cost_management_openshift_project_read)
+       permission cost_management_cost_model_all = (subject & t_role->cost_management_cost_model_all)
+       permission cost_management_cost_model_read = (subject & t_role->cost_management_cost_model_read)
+       permission cost_management_cost_model_write = (subject & t_role->cost_management_cost_model_write)
+       permission cost_management_settings_all = (subject & t_role->cost_management_settings_all)
+       permission cost_management_settings_read = (subject & t_role->cost_management_settings_read)
+       permission cost_management_settings_write = (subject & t_role->cost_management_settings_write)
    }
    ```
 
-2. `rbac/tenant` -- add `cost_management_*` permission arrows from bindings:
+2. `rbac/tenant` -- add 13 OCP-scoped permission arrows using the existing pattern `t_binding->X + t_platform->X`:
    ```zed
    definition rbac/tenant {
-       ...
-       permission cost_management_openshift_cluster_read = t_binding->cost_management_openshift_cluster_read
-       permission cost_management_openshift_cluster_all = t_binding->cost_management_openshift_cluster_all
-       // ... all 23 cost_management permissions
+       // ... existing permissions for other services ...
+       permission cost_management_all_all = t_binding->cost_management_all_all + t_platform->cost_management_all_all
+       permission cost_management_openshift_cluster_all = t_binding->cost_management_openshift_cluster_all + t_platform->cost_management_openshift_cluster_all
+       permission cost_management_openshift_cluster_read = t_binding->cost_management_openshift_cluster_read + t_platform->cost_management_openshift_cluster_read
+       permission cost_management_openshift_node_all = t_binding->cost_management_openshift_node_all + t_platform->cost_management_openshift_node_all
+       permission cost_management_openshift_node_read = t_binding->cost_management_openshift_node_read + t_platform->cost_management_openshift_node_read
+       permission cost_management_openshift_project_all = t_binding->cost_management_openshift_project_all + t_platform->cost_management_openshift_project_all
+       permission cost_management_openshift_project_read = t_binding->cost_management_openshift_project_read + t_platform->cost_management_openshift_project_read
+       permission cost_management_cost_model_all = t_binding->cost_management_cost_model_all + t_platform->cost_management_cost_model_all
+       permission cost_management_cost_model_read = t_binding->cost_management_cost_model_read + t_platform->cost_management_cost_model_read
+       permission cost_management_cost_model_write = t_binding->cost_management_cost_model_write + t_platform->cost_management_cost_model_write
+       permission cost_management_settings_all = t_binding->cost_management_settings_all + t_platform->cost_management_settings_all
+       permission cost_management_settings_read = t_binding->cost_management_settings_read + t_platform->cost_management_settings_read
+       permission cost_management_settings_write = t_binding->cost_management_settings_write + t_platform->cost_management_settings_write
    }
    ```
 
-Until this PR lands, the E2E flow (`principal -> role_binding -> role -> tenant -> resource`) will not resolve. Unit and integration tests (which mock gRPC) are unaffected.
+**Deferred (SaaS follow-up):** The remaining 10 cloud permissions (`cost_management_aws_account_*`, `cost_management_aws_organizational_unit_*`, `cost_management_azure_subscription_guid_*`, `cost_management_gcp_account_*`, `cost_management_gcp_project_*`) will be added when SaaS onboards Kessel for cost management.
+
+Until this PR lands, the E2E flow (`principal -> role_binding -> role -> tenant -> resource`) will not resolve for cost management permissions. Unit and integration tests (which mock gRPC) are unaffected.
 
 ### 11.5 External Tooling (Operator Use)
 
@@ -1056,7 +1082,7 @@ Until this PR lands, the E2E flow (`principal -> role_binding -> role -> tenant 
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| **ZED schema gap: cost_management permissions not wired through role_binding/tenant** | `LookupResources` will not return results even with correct role bindings because the authorization chain is incomplete | Submit a PR to `rbac-config` adding `cost_management_*` permission propagation through `rbac/role_binding` and `rbac/tenant` definitions. This is a **blocking external dependency** |
+| **ZED schema gap: cost_management permissions not wired through role_binding/tenant** | `LookupResources` will not return results even with correct role bindings because the authorization chain is incomplete | [FLPATH-3319](https://issues.redhat.com/browse/FLPATH-3319): Submit PR to `rbac-config` adding 13 OCP-scoped `cost_management_*` permission propagation through `rbac/role_binding` and `rbac/tenant`. Cloud permissions (10) deferred to SaaS onboarding. **Blocking external dependency** |
 | **gRPC in Django WSGI process** | Thread-safety concerns with gRPC channels | Lazy singleton with `threading.Lock`; verify in load tests |
 | **Performance: many LookupResources calls** | Up to 14 resource types x 2 operations = 28 gRPC calls per cache miss | Cache aggressively (300s default); batch where SDK supports it |
 | **Partial LookupResources failure** | One resource type lookup fails mid-request | Fail entire request with HTTP 424, not partial access |
