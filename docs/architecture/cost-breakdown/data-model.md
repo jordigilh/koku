@@ -155,7 +155,6 @@ class RatesToUsage(models.Model):
     cluster_id = models.TextField()
     cluster_alias = models.TextField(null=True)
     data_source = models.CharField(max_length=63, null=True)
-    resource_id = models.CharField(max_length=253, null=True)
     persistentvolumeclaim = models.CharField(max_length=253, null=True)
     pod_labels = JSONField(null=True)
     volume_labels = JSONField(null=True)
@@ -286,9 +285,10 @@ class OCPCostUIBreakDownP(models.Model):
   partition-based cleanup used for all partitioned OCP tables. Provider
   deletion and data expiration both work through partition cleanup, not
   FK cascade, since `source_uuid` is a `TextField` (not a FK).
-- For on-prem, also add `"rates_to_usage"` to
-  `get_self_hosted_table_names()` in
-  `reporting/provider/ocp/self_hosted_models.py`
+  This entry covers both SaaS and ONPREM modes since it is in the base
+  `table_names` list (before the `if settings.ONPREM` branch).
+  Do NOT also add to `get_self_hosted_table_names()` — that would
+  create a duplicate entry when ONPREM=true.
 
 **Pre-existing bug**: `reporting_ocp_vm_summary_p` is not in
 `UI_SUMMARY_TABLES` and is not cleaned by the purge job. Should be
@@ -634,7 +634,6 @@ CREATE TABLE rates_to_usage (
     cluster_id           TEXT NOT NULL,
     cluster_alias        TEXT,
     data_source          VARCHAR(63),
-    resource_id          VARCHAR(253),
     persistentvolumeclaim VARCHAR(253),
     pod_labels           JSONB,
     volume_labels        JSONB,
@@ -667,23 +666,26 @@ automatically based on usage data date ranges.
 **Partition creation wiring**: `rates_to_usage` is NOT a UI
 summary table, so it is not covered by the `_handle_partitions()` call
 in `ocp_report_parquet_summary_updater.py`. Instead, partition creation
-must be wired in the cost model updater, following the pattern used by
-self-hosted line item tables:
+is wired in the cost model updater via `PartitionHandlerMixin`:
 
 ```python
-# In ocp_cost_model_cost_updater.py, before writing to RatesToUsage:
-from koku.pg_partition import get_or_create_partition
+# ocp_cost_model_cost_updater.py inherits PartitionHandlerMixin
+from koku.pg_partition import PartitionHandlerMixin
 
-get_or_create_partition(
-    schema_name=self._schema,
-    table_name="rates_to_usage",
-    start_date=start_date,
-)
+class OCPCostModelCostUpdater(OCPCloudUpdaterBase, PartitionHandlerMixin):
+    ...
+    def _ensure_rates_to_usage_partitions(self, start_date, end_date):
+        """Create monthly partitions for rates_to_usage on demand."""
+        with schema_context(self._schema):
+            self._handle_partitions(
+                self._schema, ["rates_to_usage"], start_date, end_date
+            )
 ```
 
 This creates the monthly partition on demand, before the first INSERT
-for that month. See `write_to_self_hosted_table()` in
-`ocp_report_parquet_processor.py` for the existing pattern.
+for that month. `_handle_partitions()` is the same helper used by
+`OCPReportParquetSummaryUpdater` for UI summary tables — it builds
+`part_rec` dicts internally and handles multi-month date ranges.
 
 **Rollback**: `DROP TABLE rates_to_usage CASCADE;`
 
@@ -838,3 +840,4 @@ This is handled by M3 above.
 | v3.0 | 2026-03-19 | **IQ-9 Option 1 adopted.** Add `distributed_cost` column to `RatesToUsage` model and M4 DDL. Drop `cost_type` from `OCPCostUIBreakDownP` and M5 DDL. Rename `CostModelRatesToUsage` → `RatesToUsage` / `cost_model_rates_to_usage` → `rates_to_usage`. Update tree structure for per-rate distribution. |
 | v3.1 | 2026-03-19 | **Risk extraction.** Move R13 decision rationale table to [risk-register.md](./risk-register.md). Retain problem statement and computation details inline. |
 | v3.2 | 2026-04-06 | **Spec-vs-impl alignment.** Fix Rate model pseudocode: `tag_values` default `list` (not `dict`), `default_rate` nullable, add `created_timestamp`/`updated_timestamp`, `related_name="rate_rows"`. Fix M2 DDL to match. |
+| v3.3 | 2026-04-06 | **Phase 2 DD findings.** Remove `resource_id` from RatesToUsage model and M4 DDL (not in source table, no SQL consumer). Fix partition creation pseudocode to use `PartitionHandlerMixin._handle_partitions()` (matches actual koku API). |
