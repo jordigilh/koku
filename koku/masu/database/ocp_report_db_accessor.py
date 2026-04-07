@@ -921,6 +921,75 @@ class OCPReportDBAccessor(SQLScriptAtomicExecutorMixin, ReportDBAccessorBase):
         LOG.info(log_json(msg=f"populating {rate_type} usage costs", context=ctx))
         self._prepare_and_execute_raw_sql_query(table_name, sql, sql_params, operation="INSERT")
 
+    def delete_rates_to_usage(self, start_date, end_date, source_uuid, report_period_id):
+        """Delete all RatesToUsage rows for the given window. Runs once before per-rate INSERTs."""
+        sql = pkgutil.get_data("masu.database", "sql/openshift/cost_model/delete_rates_to_usage.sql")
+        sql = sql.decode("utf-8")
+        sql_params = {
+            "schema": self.schema,
+            "start_date": start_date,
+            "end_date": end_date,
+            "source_uuid": source_uuid,
+            "report_period_id": report_period_id,
+        }
+        LOG.info(log_json(msg="deleting rates_to_usage rows", context=sql_params))
+        self._prepare_and_execute_raw_sql_query("rates_to_usage", sql, sql_params, operation="DELETE")
+
+    def populate_usage_rates_to_usage(
+        self, rate_type, rates, distribution, start_date, end_date, provider_uuid, report_period_id, cost_model_id
+    ):
+        """Insert per-rate cost rows into rates_to_usage for the given window."""
+        if not rates:
+            return
+
+        sql = pkgutil.get_data("masu.database", "sql/openshift/cost_model/insert_usage_rates_to_usage.sql")
+        sql = sql.decode("utf-8")
+        sql_params = {
+            "start_date": start_date,
+            "end_date": end_date,
+            "schema": self.schema,
+            "source_uuid": provider_uuid,
+            "report_period_id": report_period_id,
+            "rate_type": rate_type,
+            "distribution": distribution,
+            "cost_model_id": cost_model_id,
+        }
+        for metric in metric_constants.COST_MODEL_USAGE_RATES:
+            sql_params[metric] = rates.get(metric, 0)
+
+        LOG.info(log_json(msg=f"populating {rate_type} rates_to_usage", context=sql_params))
+        self._prepare_and_execute_raw_sql_query("rates_to_usage", sql, sql_params, operation="INSERT")
+
+    def aggregate_rates_to_daily_summary(self, start_date, end_date, source_uuid, report_period_id):
+        """Aggregate RatesToUsage rows into daily summary cost columns."""
+        table_name = self._table_map["line_item_daily_summary"]
+        sql = pkgutil.get_data("masu.database", "sql/openshift/cost_model/aggregate_rates_to_daily_summary.sql")
+        sql = sql.decode("utf-8")
+        sql_params = {
+            "schema": self.schema,
+            "start_date": start_date,
+            "end_date": end_date,
+            "source_uuid": source_uuid,
+            "report_period_id": report_period_id,
+        }
+        LOG.info(log_json(msg="aggregating rates_to_usage → daily summary", context=sql_params))
+        self._prepare_and_execute_raw_sql_query(table_name, sql, sql_params, operation="INSERT")
+
+    def validate_rates_against_daily_summary(self, start_date, end_date, source_uuid, report_period_id):
+        """CI-only: return diff rows between RTU aggregates and daily summary. Empty = correct."""
+        sql = pkgutil.get_data("masu.database", "sql/openshift/cost_model/validate_rates_against_daily_summary.sql")
+        sql = sql.decode("utf-8")
+        sql_params = {
+            "schema": self.schema,
+            "start_date": start_date,
+            "end_date": end_date,
+            "source_uuid": source_uuid,
+            "report_period_id": report_period_id,
+        }
+        return self._prepare_and_execute_raw_sql_query(
+            self._table_map["line_item_daily_summary"], sql, sql_params, operation="SELECT"
+        )
+
     def populate_tag_usage_costs(  # noqa: C901
         self, infrastructure_rates, supplementary_rates, start_date, end_date, cluster_id
     ):
