@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 """Database accessor for OCP rate data."""
-import copy
 import logging
 from collections import defaultdict
 
@@ -51,15 +50,14 @@ class CostModelDBAccessor:
 
     @property
     def price_list(self):
-        """Return the rates defined on this cost model.
+        """Return the tiered (non-tag) rates defined on this cost model.
 
         Reads from the Rate table (via PriceListCostModelMap → PriceList → Rate).
         Output dict matches the legacy JSON-based format so all downstream
         properties (infrastructure_rates, supplementary_rates, etc.) work unchanged.
 
         Tag rates (Rate rows with a non-empty tag_key) are skipped here;
-        they are handled by tag_based_price_list which still reads from JSON
-        until Phase 3 switches it to the Rate table.
+        they are handled by tag_based_price_list (also Rate-table-backed).
         """
         if not self.cost_model:
             return {}
@@ -132,77 +130,74 @@ class CostModelDBAccessor:
 
     @property
     def metric_to_tag_params_map(self):
-        """Returns the tag rate parameters"""
+        """Returns the tag rate parameters, read from the Rate table."""
         if not self.cost_model:
             return {}
-        tag_rate_list = []
-        all_rates = copy.deepcopy(self.cost_model.rates)
-        for rate in all_rates:
-            tag_rate_param = {}
-            tag_rate = rate.get("tag_rates")
-            if not tag_rate:
-                continue
-            metric_name = rate.get("metric", {}).get("name")
-            tag_rate_param["rate_type"] = rate["cost_type"]
-            tag_rate_param["tag_key"] = tag_rate.get("tag_key")
+        tag_rates = Rate.objects.filter(
+            price_list__cost_model_maps__cost_model=self.cost_model
+        ).exclude(tag_key="").only("metric", "cost_type", "tag_key", "tag_values")
+
+        metric_map = defaultdict(list)
+        for rate in tag_rates:
+            tag_rate_param = {
+                "rate_type": rate.cost_type,
+                "tag_key": rate.tag_key,
+            }
             kv_pairs_rates = {}
-            for tag_value in tag_rate.get("tag_values"):
-                if tag_value.get("default"):
-                    tag_rate_param["default_rate"] = float(tag_value.get("value"))
+            for tv in rate.tag_values:
+                if tv.get("default"):
+                    tag_rate_param["default_rate"] = float(tv.get("value", 0))
                 else:
-                    kv_pairs_rates[tag_value.get("tag_value")] = float(tag_value.get("value"))
+                    kv_pairs_rates[tv.get("tag_value")] = float(tv.get("value", 0))
             if kv_pairs_rates:
                 tag_rate_param["value_rates"] = kv_pairs_rates
-            tag_rate_list.append({metric_name: tag_rate_param})
-        metric_map = defaultdict(list)
-        for item in tag_rate_list:
-            for metric_name, params in item.items():
-                metric_map[metric_name].append(params)
+            metric_map[rate.metric].append(tag_rate_param)
         return metric_map
 
-    @property  # noqa: C901
-    def tag_based_price_list(self):  # noqa: C901
-        """Return the rates definied on this cost model that come from tag based rates."""
-        metric_rate_map = {}
-        tag_based_price_list = None
-        if self.cost_model:
-            tag_based_price_list = copy.deepcopy(self.cost_model.rates)
-        if not tag_based_price_list:
+    @property
+    def tag_based_price_list(self):
+        """Return the rates defined on this cost model that come from tag based rates.
+
+        Reads from the Rate table instead of CostModel.rates JSON.
+        Output format matches the legacy JSON-based structure for backward
+        compatibility with downstream properties (tag_infrastructure_rates, etc.).
+        """
+        if not self.cost_model:
             return {}
-        for rate in tag_based_price_list:
-            if not rate.get("tag_rates"):
-                continue
-            metric_name = rate.get("metric", {}).get("name")
-            metric_cost_type = rate["cost_type"]
-            tag_rates_list = []
-            tag = rate.get("tag_rates")
+        tag_rate_rows = Rate.objects.filter(
+            price_list__cost_model_maps__cost_model=self.cost_model
+        ).exclude(tag_key="").only("metric", "cost_type", "tag_key", "tag_values")
+
+        metric_rate_map = {}
+        for rate in tag_rate_rows:
+            metric_name = rate.metric
+            metric_cost_type = rate.cost_type
             tag_rate_dict = {}
-            tag_key = tag.get("tag_key")
             default_rate = 0
-            for tag_rate in tag.get("tag_values"):
-                rate_value = float(tag_rate.get("value"))
-                unit = tag_rate.get("unit")
-                default = tag_rate.get("default")
+            for tv in rate.tag_values:
+                rate_value = float(tv.get("value", 0))
+                unit = tv.get("unit", "USD")
+                default = tv.get("default", False)
                 if default:
                     default_rate = rate_value
-                tag_value = tag_rate.get("tag_value")
+                tag_value = tv.get("tag_value", "")
                 tag_rate_dict[tag_value] = {"unit": unit, "value": rate_value, "default": default}
-            tag_rates_list.append({"tag_key": tag_key, "tag_values": tag_rate_dict, "tag_key_default": default_rate})
-            if metric_name in metric_rate_map.keys():
-                tag_rates = metric_rate_map.get(metric_name)
-                existing_cost_dict = tag_rates.get("tag_rates")
-                if existing_cost_dict.get(metric_cost_type):
-                    existing_list = existing_cost_dict.get(metric_cost_type)
-                    existing_list.extend(tag_rates_list)
-                    existing_cost_dict[metric_cost_type] = existing_list
+            tag_entry = {"tag_key": rate.tag_key, "tag_values": tag_rate_dict, "tag_key_default": default_rate}
+
+            if metric_name in metric_rate_map:
+                existing = metric_rate_map[metric_name]
+                cost_dict = existing.get("tag_rates", {})
+                if metric_cost_type in cost_dict:
+                    cost_dict[metric_cost_type].append(tag_entry)
                 else:
-                    existing_cost_dict[metric_cost_type] = tag_rates_list
-                    tag_rates["tag_rates"] = existing_cost_dict
-                    metric_rate_map[metric_name] = tag_rates
+                    cost_dict[metric_cost_type] = [tag_entry]
+                existing["tag_rates"] = cost_dict
             else:
-                format_tag_rates = {metric_cost_type: tag_rates_list}
-                rate["tag_rates"] = format_tag_rates
-                metric_rate_map[metric_name] = rate
+                metric_rate_map[metric_name] = {
+                    "metric": {"name": metric_name},
+                    "cost_type": metric_cost_type,
+                    "tag_rates": {metric_cost_type: [tag_entry]},
+                }
         return metric_rate_map
 
     @property
