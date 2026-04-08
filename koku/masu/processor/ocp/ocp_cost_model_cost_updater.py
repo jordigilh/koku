@@ -400,9 +400,8 @@ class OCPCostModelCostUpdater(OCPCloudUpdaterBase, PartitionHandlerMixin):
                         self._provider_uuid,
                     )
 
-    def _update_usage_costs(self, start_date, end_date):
-        """Update infrastructure and supplementary usage costs."""
-
+    def _update_vm_usage_costs(self, start_date, end_date):
+        """Update infrastructure and supplementary VM usage costs."""
         report_type_map = {
             metric_constants.INFRASTRUCTURE_COST_TYPE: self._infra_rates,
             metric_constants.SUPPLEMENTARY_COST_TYPE: self._supplementary_rates,
@@ -412,7 +411,7 @@ class OCPCostModelCostUpdater(OCPCloudUpdaterBase, PartitionHandlerMixin):
             if not report_period:
                 LOG.info(
                     log_json(
-                        msg="no report period for OCP provider, skipping populate_usage_costs update",
+                        msg="no report period for OCP provider, skipping VM usage costs update",
                         context={
                             "schema": self._schema,
                             "provider_uuid": self._provider.uuid,
@@ -424,15 +423,6 @@ class OCPCostModelCostUpdater(OCPCloudUpdaterBase, PartitionHandlerMixin):
                 return
             report_period_id = report_period.id
             for report_type, report_type_dict in report_type_map.items():
-                report_accessor.populate_usage_costs(
-                    report_type,
-                    filter_dictionary(report_type_dict, metric_constants.COST_MODEL_USAGE_RATES),
-                    self._distribution,
-                    start_date,
-                    end_date,
-                    self._provider.uuid,
-                    report_period_id,
-                )
                 report_accessor.populate_vm_usage_costs(
                     report_type,
                     filter_dictionary(report_type_dict, metric_constants.COST_MODEL_VM_USAGE_RATES),
@@ -486,6 +476,13 @@ class OCPCostModelCostUpdater(OCPCloudUpdaterBase, PartitionHandlerMixin):
                     report_period_id,
                     self._cost_model_id,
                 )
+
+    def _update_per_rate_distributed_cost(self, summary_range: SummaryRangeConfig):
+        """Run per-rate distribution SQL to populate distributed_cost in RatesToUsage."""
+        with OCPReportDBAccessor(self._schema) as report_accessor:
+            report_accessor.populate_per_rate_distributed_cost_sql(
+                summary_range, self._provider_uuid, self._distribution_info
+            )
 
     def _aggregate_rates_to_daily_summary(self, start_date, end_date):
         """Aggregate RatesToUsage rows into daily summary cost columns."""
@@ -650,7 +647,7 @@ class OCPCostModelCostUpdater(OCPCloudUpdaterBase, PartitionHandlerMixin):
         # Phase 2: DELETE stale RTU rows + INSERT per-rate usage costs into RatesToUsage
         self._update_usage_rates_to_usage(summary_range.start_date, summary_range.end_date)
 
-        self._update_usage_costs(summary_range.start_date, summary_range.end_date)
+        self._update_vm_usage_costs(summary_range.start_date, summary_range.end_date)
         self._update_markup_cost(summary_range.start_date, summary_range.end_date)
         self._update_monthly_cost(summary_range.start_date, summary_range.end_date)
         # only update based on tag rates if there are tag rates
@@ -673,7 +670,10 @@ class OCPCostModelCostUpdater(OCPCloudUpdaterBase, PartitionHandlerMixin):
         if not (self._tag_infra_rates or self._tag_supplementary_rates):
             self._delete_tag_usage_costs(summary_range.start_date, summary_range.end_date, self._provider.uuid)
 
-        # Phase 2: Aggregate RTU rows → daily summary (runs BEFORE distribution)
+        # Phase 4: Per-rate distribution to RTU (runs BEFORE aggregation)
+        self._update_per_rate_distributed_cost(summary_range)
+
+        # Phase 2: Aggregate RTU rows → daily summary (runs AFTER per-rate distribution)
         self._aggregate_rates_to_daily_summary(summary_range.start_date, summary_range.end_date)
 
         self.distribute_costs_and_update_ui_summary(summary_range)

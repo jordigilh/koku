@@ -669,6 +669,89 @@ class OCPReportDBAccessor(SQLScriptAtomicExecutorMixin, ReportDBAccessorBase):
 
         return summary_range
 
+    def populate_per_rate_distributed_cost_sql(
+        self, summary_range: SummaryRangeConfig, provider_uuid: uuid.UUID, distribution_info: dict
+    ) -> SummaryRangeConfig:
+        """Populate per-rate distribution rows in rates_to_usage (IQ-9 Option 1).
+
+        Mirrors populate_distributed_cost_sql but writes per-rate distributed
+        rows to rates_to_usage instead of the daily summary.  Each SQL file
+        handles its own DELETE + INSERT internally.  All files are PostgreSQL-only.
+        """
+        per_rate_configs = {
+            metric_constants.PLATFORM_COST: DistributionConfig(
+                sql_file="distribute_platform_cost_per_rate.sql",
+                cost_model_rate_type="platform_distributed",
+            ),
+            metric_constants.WORKER_UNALLOCATED: DistributionConfig(
+                sql_file="distribute_worker_cost_per_rate.sql",
+                cost_model_rate_type="worker_distributed",
+            ),
+            metric_constants.STORAGE_UNATTRIBUTED: DistributionConfig(
+                sql_file="distribute_unattributed_storage_per_rate.sql",
+                cost_model_rate_type="unattributed_storage",
+                distribute_by_default=True,
+            ),
+            metric_constants.NETWORK_UNATTRIBUTED: DistributionConfig(
+                sql_file="distribute_unattributed_network_per_rate.sql",
+                cost_model_rate_type="unattributed_network",
+                distribute_by_default=True,
+            ),
+            metric_constants.GPU_UNALLOCATED: DistributionConfig(
+                sql_file="distribute_unallocated_gpu_per_rate.sql",
+                cost_model_rate_type="gpu_distributed",
+                requires_full_month=True,
+            ),
+        }
+
+        table_name = self._table_map["line_item_daily_summary"]
+        dh = DateHelper()
+        for cost_model_key, config in per_rate_configs.items():
+            sql_params = {
+                "start_date": summary_range.start_date,
+                "end_date": summary_range.end_date,
+                "schema": self.schema,
+                "source_uuid": provider_uuid,
+                "cost_model_rate_type": config.cost_model_rate_type,
+            }
+            if config.requires_full_month:
+                if summary_range.is_current_month:
+                    if dh.now_utc.day == 2:
+                        sql_params["start_date"] = summary_range.start_of_previous_month
+                        sql_params["end_date"] = summary_range.end_of_previous_month
+                        summary_range.summarize_previous_month = True
+                    else:
+                        msg = f"Skipping per-rate {cost_model_key} distribution requires full month"
+                        LOG.info(log_json(msg=msg, context={"schema": self.schema, "cost_model_key": cost_model_key}))
+                        continue
+                else:
+                    sql_params["start_date"] = summary_range.start_of_month
+                    sql_params["end_date"] = summary_range.end_of_month
+
+            report_period = self.report_periods_for_provider_uuid(provider_uuid, sql_params["start_date"])
+            if not report_period:
+                msg = f"no report period for OCP provider, skipping per-rate {cost_model_key} distribution"
+                context = {
+                    "schema": self.schema,
+                    "provider_uuid": provider_uuid,
+                    "start_date": sql_params["start_date"],
+                }
+                LOG.info(log_json(msg=msg, context=context))
+                continue
+            sql_params["report_period_id"] = report_period.id
+
+            populate = distribution_info.get(cost_model_key, config.distribute_by_default)
+            if not populate:
+                continue
+            sql_params["distribution"] = distribution_info.get("distribution_type", DEFAULT_DISTRIBUTION_TYPE)
+            sql = pkgutil.get_data("masu.database", config.get_full_path())
+            sql = sql.decode("utf-8")
+            log_msg = f"distributing per-rate {cost_model_key}"
+            LOG.info(log_json(msg=log_msg, context=sql_params))
+            self._prepare_and_execute_raw_sql_query(table_name, sql, sql_params, operation=f"INSERT: {log_msg}")
+
+        return summary_range
+
     def _delete_monthly_cost_model_rate_type_data(self, sql_params, cost_model_key):
         delete_sql = pkgutil.get_data(
             "masu.database", "sql/openshift/cost_model/delete_monthly_cost_model_rate_type.sql"
@@ -876,50 +959,6 @@ class OCPReportDBAccessor(SQLScriptAtomicExecutorMixin, ReportDBAccessorBase):
             sql = pkgutil.get_data("masu.database", metadata["file_path"]).decode("utf-8")
             LOG.info(log_json(msg=metadata["log_msg"], context=sql_params))
             self._execute_trino_multipart_sql_query(sql, bind_params=sql_params)
-
-    def populate_usage_costs(
-        self, rate_type, rates, distribution, start_date, end_date, provider_uuid, report_period_id
-    ):
-        """Update the reporting_ocpusagelineitem_daily_summary table with usage costs."""
-        table_name = self._table_map["line_item_daily_summary"]
-
-        ctx = {
-            "schema": self.schema,
-            "provider_uuid": provider_uuid,
-            "start_date": start_date,
-            "end_date": end_date,
-            "report_period": report_period_id,
-        }
-        if not rates:
-            LOG.info(log_json(msg="removing usage costs", context=ctx))
-            self.delete_line_item_daily_summary_entries_for_date_range_raw(
-                provider_uuid,
-                start_date,
-                end_date,
-                table=OCPUsageLineItemDailySummary,
-                filters={"cost_model_rate_type": rate_type, "report_period_id": report_period_id},
-                null_filters={"monthly_cost_type": "IS NULL"},
-            )
-            # We cleared out existing data, but there is no new to calculate.
-            return
-
-        sql = pkgutil.get_data("masu.database", "sql/openshift/cost_model/usage_costs.sql")
-
-        sql = sql.decode("utf-8")
-        sql_params = {
-            "start_date": start_date,
-            "end_date": end_date,
-            "schema": self.schema,
-            "source_uuid": provider_uuid,
-            "report_period_id": report_period_id,
-            "rate_type": rate_type,
-            "distribution": distribution,
-        }
-        for metric in metric_constants.COST_MODEL_USAGE_RATES:
-            sql_params[metric] = rates.get(metric, 0)
-
-        LOG.info(log_json(msg=f"populating {rate_type} usage costs", context=ctx))
-        self._prepare_and_execute_raw_sql_query(table_name, sql, sql_params, operation="INSERT")
 
     def delete_rates_to_usage(self, start_date, end_date, source_uuid, report_period_id):
         """Delete all RatesToUsage rows for the given window. Runs once before per-rate INSERTs."""
