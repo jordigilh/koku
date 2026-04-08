@@ -14,6 +14,7 @@ Tier 3 (Behavioral): TestUpdaterOrchestration, TestPartitionWiring, TestPurgeWir
                       TestSkipPaths
 Tier 4 (E2E): TestRTUCostBreakdownAPI, TestBreakdownPipelineE2E
 Tier 5 (UI Contract): TestBreakdownUIContractFlat, TestBreakdownUIContractTree
+PRD Acceptance (Epic 1): TestPRDEpic1TreeLayout
 """
 from functools import wraps
 from unittest.mock import patch
@@ -1651,6 +1652,300 @@ class TestBreakdownUIContractTree(_ReportPeriodMixin, MasuTestCase):
     def test_tag_group_by_rejected(self):
         """?group_by[tag:label]=* should be rejected (no tag support on breakdown)."""
         resp = self._get_tree_response(extra_params={"group_by[tag:app]": "*"}, expect_status=400)
+
+
+# ---------------------------------------------------------------------------
+# PRD Acceptance Tests — Epic 1: Custom Rate Breakdown Tree Layout
+# ---------------------------------------------------------------------------
+
+
+class TestPRDEpic1TreeLayout(_ReportPeriodMixin, MasuTestCase):
+    """PRD acceptance: Epic 1 custom rate breakdown tree layout.
+
+    Seeds a cost model with PRD-friendly custom_name values and validates the
+    tree-view API response structure matches the PRD's Epic 1 example:
+
+        total_cost
+        +-- project
+        |   +-- usage_cost
+        |   |   +-- OpenShift Subscriptions   (depth 4 per-rate leaf)
+        |   |   +-- GuestOS Subscriptions     (depth 4 per-rate leaf)
+        |   |   +-- Operation                 (depth 4 per-rate leaf)
+        |   +-- markup                        (depth 3 aggregate, if present)
+        +-- overhead
+            +-- platform_distributed / worker_distributed
+                +-- usage_cost / markup / infrastructure
+
+    Figures do not need to match the PRD; only the structural layout is validated.
+    """
+
+    PRD_RATE_RENAMES = {
+        "cpu_core_usage_per_hour": "OpenShift Subscriptions",
+        "memory_gb_usage_per_hour": "GuestOS Subscriptions",
+        "cpu_core_request_per_hour": "Operation",
+    }
+
+    def _apply_prd_names_and_rebuild(self):
+        """Rename RTU custom_name values to PRD names and rebuild the breakdown table.
+
+        The RTU insert SQL currently writes metric names as custom_name.
+        This method patches those values in-place across all months and
+        re-runs the breakdown population SQL so the tree reflects
+        user-friendly PRD rate names.
+        """
+        import pkgutil
+
+        from reporting.provider.ocp.models import RatesToUsage
+
+        dh = DateHelper()
+        rebuild_start = dh.last_month_start.date()
+        rebuild_end = dh.this_month_end.date()
+
+        with schema_context(self.schema):
+            rtu_count = RatesToUsage.objects.filter(
+                source_uuid=self.ocp_provider.uuid,
+            ).count()
+            if rtu_count == 0:
+                self.skipTest("No RTU rows for OCP provider — pipeline has not run")
+
+            renamed = 0
+            for metric, prd_name in self.PRD_RATE_RENAMES.items():
+                updated = RatesToUsage.objects.filter(
+                    source_uuid=self.ocp_provider.uuid,
+                    custom_name=metric,
+                ).update(custom_name=prd_name)
+                renamed += updated
+
+            if renamed == 0:
+                self.skipTest("No RTU rows matched for renaming")
+
+        sql_params = {
+            "start_date": rebuild_start,
+            "end_date": rebuild_end,
+            "schema": self.schema,
+            "source_uuid": self.ocp_provider.uuid,
+        }
+        sql = pkgutil.get_data(
+            "masu.database", "sql/openshift/ui_summary/reporting_ocp_cost_breakdown_p.sql"
+        ).decode("utf-8")
+        with OCPReportDBAccessor(self.schema) as accessor:
+            accessor._prepare_and_execute_raw_sql_query(
+                "reporting_ocp_cost_breakdown_p", sql, sql_params, operation="DELETE/INSERT"
+            )
+
+    def _get_tree_response(self):
+        from urllib.parse import quote_plus, urlencode
+
+        from django.urls import reverse
+        from rest_framework.test import APIClient
+
+        url = reverse("ocp-cost-breakdown")
+        params = {
+            "view": "tree",
+            "filter[time_scope_value]": "-2",
+            "filter[time_scope_units]": "month",
+            "filter[resolution]": "monthly",
+        }
+        full_url = url + "?" + urlencode(params, quote_via=quote_plus)
+        return APIClient().get(full_url, **self.headers)
+
+    def _find_node(self, node, target_path):
+        """DFS for a node by path in the tree."""
+        if node.get("path") == target_path:
+            return node
+        for child in node.get("children", []):
+            found = self._find_node(child, target_path)
+            if found:
+                return found
+        return None
+
+    def _collect_all_paths(self, node, paths=None):
+        """Recursively collect all paths from a tree node."""
+        if paths is None:
+            paths = set()
+        paths.add(node.get("path", ""))
+        for child in node.get("children", []):
+            self._collect_all_paths(child, paths)
+        return paths
+
+    @override_settings(ENHANCED_ORG_ADMIN=True)
+    def test_prd_epic1_tree_layout(self):
+        """PRD acceptance: tree layout with custom-named rates matches Epic 1.
+
+        Validates structural invariants only (figures are not matched):
+        - total_cost root at depth 1
+        - project / overhead at depth 2
+        - project.usage_cost at depth 3 with per-rate leaves at depth 4
+        - Per-rate leaves include at least one PRD-named rate
+        - overhead children are valid distribution types
+        - Depth increments correctly at every level
+        """
+        self._apply_prd_names_and_rebuild()
+
+        resp = self._get_tree_response()
+        self.assertEqual(resp.status_code, 200, f"Expected 200, got {resp.status_code}")
+
+        data = resp.data.get("data", [])
+        self.assertGreater(len(data), 0, "Response should have at least one date bucket")
+
+        roots = None
+        for bucket in data:
+            vals = bucket.get("values", [])
+            if vals:
+                roots = vals
+                break
+        if not roots:
+            self.skipTest("No values in any date bucket")
+
+        # --- Depth 1: total_cost root ---
+        total = next((r for r in roots if r.get("path") == "total_cost"), None)
+        self.assertIsNotNone(total, "Tree root should be 'total_cost'")
+        self.assertEqual(total["depth"], 1)
+
+        # --- Depth 2: project and/or overhead ---
+        d2_children = total.get("children", [])
+        d2_paths = {c["path"] for c in d2_children}
+        self.assertTrue(
+            d2_paths & {"project", "overhead"},
+            f"total_cost children should include project/overhead, got: {d2_paths}",
+        )
+        for child in d2_children:
+            self.assertEqual(child["depth"], 2, f"Depth-2 node '{child['path']}' has depth {child['depth']}")
+
+        # --- Depth 3: project breakdown categories ---
+        project = self._find_node(total, "project")
+        if project:
+            d3_paths = {c["path"] for c in project.get("children", [])}
+            self.assertIn(
+                "project.usage_cost", d3_paths,
+                f"project should have usage_cost child, got: {d3_paths}",
+            )
+            for child in project.get("children", []):
+                self.assertEqual(child["depth"], 3, f"Depth-3 node '{child['path']}' has depth {child['depth']}")
+
+            # --- Depth 4: per-rate leaves under usage_cost ---
+            usage_cost = self._find_node(project, "project.usage_cost")
+            if usage_cost:
+                leaves = usage_cost.get("children", [])
+                self.assertGreater(len(leaves), 0, "usage_cost should have per-rate leaf children")
+
+                leaf_names = {c.get("custom_name") for c in leaves}
+                found_prd = leaf_names & set(self.PRD_RATE_RENAMES.values())
+                self.assertTrue(
+                    found_prd,
+                    f"usage_cost leaves should include PRD rate names. "
+                    f"Found: {leaf_names}, expected any of: {set(self.PRD_RATE_RENAMES.values())}",
+                )
+
+                for leaf in leaves:
+                    self.assertEqual(leaf["depth"], 4, f"Per-rate leaf '{leaf['path']}' should be depth 4")
+                    self.assertEqual(
+                        leaf["parent_path"], "project.usage_cost",
+                        f"Leaf '{leaf['path']}' parent_path should be 'project.usage_cost'",
+                    )
+                    self.assertEqual(leaf["top_category"], "project")
+                    self.assertEqual(leaf["breakdown_category"], "usage_cost")
+
+        # --- Overhead distribution children ---
+        overhead = self._find_node(total, "overhead")
+        if overhead:
+            d3_oh_paths = {c["path"] for c in overhead.get("children", [])}
+            valid_d3_overhead = {
+                "overhead.platform_distributed",
+                "overhead.worker_distributed",
+                "overhead.unattributed_storage",
+                "overhead.unattributed_network",
+                "overhead.gpu_distributed",
+                "overhead.usage_cost",
+                "overhead.markup",
+            }
+            self.assertTrue(
+                d3_oh_paths & valid_d3_overhead,
+                f"overhead children should be distribution types, got: {d3_oh_paths}",
+            )
+            for child in overhead.get("children", []):
+                self.assertEqual(child["depth"], 3)
+
+    @override_settings(ENHANCED_ORG_ADMIN=True)
+    def test_prd_named_rates_appear_in_flat_view(self):
+        """PRD acceptance: flat view includes rows with PRD-named custom_name values."""
+        from urllib.parse import quote_plus, urlencode
+
+        from django.urls import reverse
+        from rest_framework.test import APIClient
+
+        self._apply_prd_names_and_rebuild()
+
+        url = reverse("ocp-cost-breakdown")
+        params = {
+            "filter[time_scope_value]": "-2",
+            "filter[time_scope_units]": "month",
+            "filter[resolution]": "monthly",
+        }
+        full_url = url + "?" + urlencode(params, quote_via=quote_plus)
+        resp = APIClient().get(full_url, **self.headers)
+        self.assertEqual(resp.status_code, 200)
+
+        all_names = set()
+        for bucket in resp.data.get("data", []):
+            for val in bucket.get("values", []) or bucket.get("cost_breakdowns", []):
+                name = val.get("custom_name")
+                if name:
+                    all_names.add(name)
+
+        if not all_names:
+            self.skipTest("No breakdown rows returned")
+
+        found_prd = all_names & set(self.PRD_RATE_RENAMES.values())
+        self.assertTrue(
+            found_prd,
+            f"Flat view should include PRD rate names. Found: {all_names}, "
+            f"expected any of: {set(self.PRD_RATE_RENAMES.values())}",
+        )
+
+    @override_settings(ENHANCED_ORG_ADMIN=True)
+    def test_prd_tree_depth_never_exceeds_5(self):
+        """PRD spec: max tree depth is 5 (per-rate distribution leaves under overhead)."""
+        self._apply_prd_names_and_rebuild()
+
+        resp = self._get_tree_response()
+        self.assertEqual(resp.status_code, 200)
+
+        def check_max_depth(node, max_seen=0):
+            depth = node.get("depth", 0)
+            max_seen = max(max_seen, depth)
+            self.assertLessEqual(depth, 5, f"Node '{node.get('path')}' exceeds max depth 5")
+            for child in node.get("children", []):
+                max_seen = check_max_depth(child, max_seen)
+            return max_seen
+
+        for bucket in resp.data.get("data", []):
+            for root in bucket.get("values", []):
+                check_max_depth(root)
+
+    @override_settings(ENHANCED_ORG_ADMIN=True)
+    def test_prd_tree_paths_are_dot_separated(self):
+        """PRD spec: paths encode hierarchy as dot-separated strings."""
+        self._apply_prd_names_and_rebuild()
+
+        resp = self._get_tree_response()
+        self.assertEqual(resp.status_code, 200)
+
+        def check_path_depth_consistency(node):
+            path = node.get("path", "")
+            depth = node.get("depth", 0)
+            if depth > 1:
+                segments = path.split(".")
+                self.assertGreaterEqual(
+                    len(segments), depth - 1,
+                    f"Path '{path}' has {len(segments)} segments but depth is {depth}",
+                )
+            for child in node.get("children", []):
+                check_path_depth_consistency(child)
+
+        for bucket in resp.data.get("data", []):
+            for root in bucket.get("values", []):
+                check_path_depth_consistency(root)
 
 
 # ---------------------------------------------------------------------------
