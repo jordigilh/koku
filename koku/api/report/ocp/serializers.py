@@ -450,6 +450,89 @@ class OCPGpuQueryParamSerializer(OCPQueryParamSerializer):
         super().__init__(*args, **kwargs)
 
 
+class CostBreakdownGroupBySerializer(GroupSerializer):
+    """Serializer for handling cost breakdown group_by.
+
+    Tag-based group_by is disabled because OCPCostUIBreakDownP has no
+    tag/label columns.
+    """
+
+    _tagkey_support = False
+    _opfields = ("cluster", "node", "project")
+
+    cluster = StringOrListField(child=serializers.CharField(), required=False)
+    project = StringOrListField(child=serializers.CharField(), required=False)
+    node = StringOrListField(child=serializers.CharField(), required=False)
+
+
+class CostBreakdownFilterSerializer(BaseFilterSerializer):
+    """Serializer for handling cost breakdown filter."""
+
+    _opfields = ("cluster", "node", "project")
+
+    cluster = StringOrListField(child=serializers.CharField(), required=False)
+    node = StringOrListField(child=serializers.CharField(), required=False)
+    project = StringOrListField(child=serializers.CharField(), required=False)
+
+
+class CostBreakdownExcludeSerializer(BaseExcludeSerializer):
+    """Serializer for handling cost breakdown exclude (symmetric with filter)."""
+
+    _opfields = ("cluster", "node", "project")
+
+    cluster = StringOrListField(child=serializers.CharField(), required=False)
+    node = StringOrListField(child=serializers.CharField(), required=False)
+    project = StringOrListField(child=serializers.CharField(), required=False)
+
+
+class CostBreakdownOrderBySerializer(OrderSerializer):
+    """Serializer for handling cost breakdown order_by.
+
+    Only breakdown-relevant fields are exposed; inherited cost/infrastructure/
+    supplementary/delta fields from OrderSerializer are disabled.  ``depth`` is
+    intentionally excluded because Koku's generic sort assumes string values.
+    """
+
+    _opfields = ("path", "date")
+
+    cost = None
+    infrastructure = None
+    supplementary = None
+    delta = None
+
+    path = serializers.ChoiceField(choices=OrderSerializer.ORDER_CHOICES, required=False)
+    date = serializers.DateField(required=False)
+
+
+class CostBreakdownQueryParamSerializer(ReportQueryParamSerializer):
+    """Serializer for handling cost breakdown query parameters.
+
+    Implements IQ-3 (flat/tree API views).  Named ``CostBreakdownFlatItemSerializer``
+    in phased-delivery.md; the tree response is handled by ``OCPCostBreakdownView._to_tree``
+    (``CostBreakdownTreeNodeSerializer`` in the spec).
+    """
+
+    GROUP_BY_SERIALIZER = CostBreakdownGroupBySerializer
+    ORDER_BY_SERIALIZER = CostBreakdownOrderBySerializer
+    FILTER_SERIALIZER = CostBreakdownFilterSerializer
+    EXCLUDE_SERIALIZER = CostBreakdownExcludeSerializer
+
+    _tagkey_support = False
+    order_by_allowlist = ("path", "date")
+
+    VIEW_CHOICES = (("flat", "flat"), ("tree", "tree"))
+    view = serializers.ChoiceField(choices=VIEW_CHOICES, required=False, default="flat")
+
+    def __init__(self, *args, **kwargs):
+        kwargs["tag_keys"] = set()
+        kwargs.pop("aws_category_keys", None)
+        super().__init__(*args, **kwargs)
+
+
+CostBreakdownFlatItemSerializer = CostBreakdownQueryParamSerializer
+"""Spec alias (phased-delivery.md Phase 4 artifacts table)."""
+
+
 class OCPMigProfilesFilterSerializer(BaseFilterSerializer):
     """Serializer for handling MIG profiles filter parameters.
 

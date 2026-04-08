@@ -10,6 +10,7 @@ from api.common.permissions.openshift_access import OpenShiftAccessPermission
 from api.common.throttling import OcpTagQueryThrottle
 from api.models import Provider
 from api.report.ocp.query_handler import OCPReportQueryHandler
+from api.report.ocp.serializers import CostBreakdownQueryParamSerializer
 from api.report.ocp.serializers import OCPCostQueryParamSerializer
 from api.report.ocp.serializers import OCPGpuQueryParamSerializer
 from api.report.ocp.serializers import OCPInventoryQueryParamSerializer
@@ -48,6 +49,62 @@ class OCPCostView(OCPView):
 
     report = "costs"
     serializer = OCPCostQueryParamSerializer
+
+
+class OCPCostBreakdownView(OCPView):
+    """Get OpenShift cost breakdown by rate.
+
+    Supports ``?view=flat`` (default) and ``?view=tree`` (IQ-3).
+    """
+
+    report = "cost_breakdown"
+    serializer = CostBreakdownQueryParamSerializer
+
+    def get(self, request, **kwargs):
+        response = super().get(request, **kwargs)
+        if request.query_params.get("view") == "tree" and response.status_code == 200:
+            response.data = self._to_tree(response.data)
+        return response
+
+    @staticmethod
+    def _to_tree(payload):
+        """Reconstruct tree hierarchy from flat breakdown rows.
+
+        Each date bucket in ``data`` contains ``values`` — flat rows with
+        ``path``, ``parent_path``, ``depth``.  This method nests them into
+        a ``children`` structure keyed by ``path``.
+        """
+        data = payload.get("data", [])
+        tree_data = []
+        for bucket in data:
+            values = bucket.get("values") or bucket.get("cost_breakdowns") or []
+            if not values:
+                tree_data.append(bucket)
+                continue
+
+            by_path = {}
+            for row in values:
+                path_key = row.get("path", "")
+                if path_key in by_path:
+                    existing = by_path[path_key]
+                    for k in ("cost_value", "distributed_cost"):
+                        if k in row and k in existing:
+                            existing[k] = (existing[k] or 0) + (row[k] or 0)
+                    continue
+                node = {**row, "children": []}
+                by_path[path_key] = node
+
+            roots = []
+            for node in by_path.values():
+                parent = node.get("parent_path", "")
+                if parent and parent in by_path and by_path[parent] is not node:
+                    by_path[parent]["children"].append(node)
+                else:
+                    roots.append(node)
+
+            tree_data.append({**bucket, "values": roots})
+
+        return {**payload, "data": tree_data}
 
 
 class OCPVolumeView(OCPView):

@@ -68,6 +68,7 @@ from api.views import OCPAzureStorageView
 from api.views import OCPAzureTagView
 from api.views import OCPClustersView
 from api.views import OCPCostForecastView
+from api.views import OCPCostBreakdownView
 from api.views import OCPCostView
 from api.views import OCPCpuView
 from api.views import OCPGCPCostForecastView
@@ -300,6 +301,13 @@ urlpatterns = [
             OCPCostView.as_view()
         ),
         name="reports-openshift-costs",
+    ),
+    path(
+        "breakdown/openshift/cost/",
+        cache_page(timeout=settings.CACHE_MIDDLEWARE_SECONDS, cache=CacheEnum.api, key_prefix=OPENSHIFT_CACHE_PREFIX)(
+            OCPCostBreakdownView.as_view()
+        ),
+        name="ocp-cost-breakdown",
     ),
     path(
         "reports/openshift/memory/",

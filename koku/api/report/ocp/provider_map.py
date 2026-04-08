@@ -41,6 +41,7 @@ from reporting.provider.ocp.models import OCPPodSummaryByProjectP
 from reporting.provider.ocp.models import OCPPodSummaryP
 from reporting.provider.ocp.models import OCPVirtualMachineSummaryP
 from reporting.provider.ocp.models import OCPVolumeSummaryByProjectP
+from reporting.provider.ocp.models import OCPCostUIBreakDownP
 from reporting.provider.ocp.models import OCPVolumeSummaryP
 
 
@@ -1281,6 +1282,33 @@ class OCPProviderMap(ProviderMap):
                         "sum_columns": ["usage", "request", "limit", "sup_total", "cost_total", "infra_total"],
                     },
                     "tags": {"default_ordering": {"cost_total": "desc"}},
+                    "cost_breakdown": {
+                        "tag_column": "custom_name",
+                        "tables": {"query": OCPCostUIBreakDownP},
+                        "aggregates": {
+                            "cost_value": Sum("cost_value"),
+                            "distributed_cost": Sum("distributed_cost"),
+                        },
+                        "default_ordering": {"path": "asc"},
+                        "annotations": {
+                            "custom_name": F("custom_name"),
+                            "path": F("path"),
+                            "depth": F("depth"),
+                            "parent_path": F("parent_path"),
+                            "top_category": F("top_category"),
+                            "breakdown_category": F("breakdown_category"),
+                            "metric_type": F("metric_type"),
+                            "cost_model_rate_type": F("cost_model_rate_type"),
+                            "cost_value": F("cost_value"),
+                            "distributed_cost": F("distributed_cost"),
+                        },
+                        "capacity_aggregate": {},
+                        "delta_key": {},
+                        "filter": [{}],
+                        "group_by_options": ["cluster", "node", "project"],
+                        "cost_units_key": "raw_currency",
+                        "sum_columns": ["cost_value", "distributed_cost"],
+                    },
                 },
                 "start_date": "usage_start",
                 "tables": {"query": OCPUsageLineItemDailySummary},
@@ -1288,6 +1316,12 @@ class OCPProviderMap(ProviderMap):
         ]
 
         self.views = {
+            "cost_breakdown": {
+                "default": OCPCostUIBreakDownP,
+                ("cluster",): OCPCostUIBreakDownP,
+                ("node",): OCPCostUIBreakDownP,
+                ("project",): OCPCostUIBreakDownP,
+            },
             "costs": {
                 "default": OCPCostSummaryP,
                 ("cluster",): OCPCostSummaryP,
