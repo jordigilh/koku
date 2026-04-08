@@ -44,8 +44,6 @@ class CostModel(models.Model):
 
     updated_timestamp = models.DateTimeField(auto_now=True)
 
-    rates = JSONField(default=dict)
-
     markup = JSONField(encoder=DjangoJSONEncoder, default=dict)
 
     distribution = models.TextField(choices=DISTRIBUTION_CHOICES, default=DEFAULT_DISTRIBUTION)
@@ -53,6 +51,42 @@ class CostModel(models.Model):
     distribution_info = JSONField(default=dict)
 
     currency = models.TextField(default=KOKU_DEFAULT_CURRENCY)
+
+    @property
+    def rates(self):
+        """Reconstruct rates list from Rate table rows.
+
+        Phase 5: The 'rates' JSONField column has been dropped. This property
+        provides backward-compatible read access by querying Rate table rows
+        linked via PriceList → PriceListCostModelMap → CostModel.
+        """
+        if not self.pk:
+            return getattr(self, "_pending_rates", [])
+        rate_rows = Rate.objects.filter(price_list__cost_model_maps__cost_model=self)
+        result = []
+        for rate in rate_rows:
+            rate_dict = {
+                "metric": {"name": rate.metric},
+                "cost_type": rate.cost_type,
+                "description": rate.description,
+                "custom_name": rate.custom_name,
+                "rate_id": str(rate.uuid),
+            }
+            if rate.tag_key:
+                rate_dict["tag_rates"] = {
+                    "tag_key": rate.tag_key,
+                    "tag_values": rate.tag_values,
+                }
+            else:
+                value = float(rate.default_rate) if rate.default_rate is not None else 0.0
+                rate_dict["tiered_rates"] = [{"value": value, "unit": "USD"}]
+            result.append(rate_dict)
+        return result
+
+    @rates.setter
+    def rates(self, value):
+        """Accept rates assignment for backward compatibility (no-op for persistence)."""
+        self._pending_rates = value
 
 
 class CostModelAudit(models.Model):

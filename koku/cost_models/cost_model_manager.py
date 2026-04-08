@@ -118,12 +118,13 @@ class CostModelManager:
         """Create cost model and optionally associate to providers."""
         cost_model_data = copy.deepcopy(data)
         provider_uuids = cost_model_data.pop("provider_uuids", [])
+        rates_data = cost_model_data.pop("rates", [])
         self._model = CostModel.objects.create(**cost_model_data)
         self.update_provider_uuids(provider_uuids)
 
-        if self._model.rates:
+        if rates_data:
             pl = self._get_or_create_price_list()
-            self._sync_rate_table(pl, copy.deepcopy(data.get("rates", [])))
+            self._sync_rate_table(pl, copy.deepcopy(rates_data))
 
         return self._model
 
@@ -184,7 +185,6 @@ class CostModelManager:
         """Update the cost model object and sync rates to linked price list if one exists."""
         self._model.name = data.get("name", self._model.name)
         self._model.description = data.get("description", self._model.description)
-        self._model.rates = data.get("rates", self._model.rates)
         self._model.markup = data.get("markup", self._model.markup)
         self._model.distribution = data.get("distribution", self._model.distribution)
         self._model.distribution_info = data.get("distribution_info", self._model.distribution_info)
@@ -244,7 +244,7 @@ class CostModelManager:
         return changed
 
     def _sync_rate_table(self, price_list, rates_data):
-        """Synchronize Rate table rows with the rates JSON blob using diff-based sync.
+        """Synchronize Rate table rows with incoming rate data using diff-based sync.
 
         Matches incoming rates to existing Rate rows by rate_id (UUID) first.
         If rate_id is absent, falls back to custom_name matching (backward-compat).
@@ -318,11 +318,6 @@ class CostModelManager:
             Rate.objects.bulk_create(rates_to_create)
             LOG.info(f"Created {len(rates_to_create)} new Rate rows for PriceList {price_list.uuid}")
 
-        self._model.rates = rates_data
-        self._model.save(update_fields=["rates"])
-        price_list.rates = copy.deepcopy(rates_data)
-        price_list.save(update_fields=["rates", "updated_timestamp"])
-
     def _get_or_create_price_list(self):
         """Get or create a PriceList linked to this CostModel. Returns the PriceList."""
         mapping = (
@@ -342,7 +337,7 @@ class CostModelManager:
             effective_end_date=date(2099, 12, 31),
             enabled=True,
             version=1,
-            rates=self._model.rates,
+            rates=[],
         )
         PriceListCostModelMap.objects.create(
             price_list=pl,
