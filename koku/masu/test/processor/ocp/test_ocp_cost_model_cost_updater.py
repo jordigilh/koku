@@ -105,63 +105,13 @@ class OCPCostModelCostUpdaterTest(MasuTestCase):
 
     @patch("masu.processor.ocp.ocp_cost_model_cost_updater.CostModelDBAccessor")
     @patch("masu.database.ocp_report_db_accessor.trino_table_exists", return_value=False)
-    def test_update_usage_costs_no_report_period(self, mock_trino_exists, mock_cost_accessor):
-        """Test that usage costs are updated for infrastructure and supplementary."""
+    def test_update_vm_usage_costs_no_report_period(self, mock_trino_exists, mock_cost_accessor):
+        """Test that VM usage costs skip when no report period exists."""
         updater = OCPCostModelCostUpdater(schema=self.schema, provider=self.provider)
-        result = updater._update_usage_costs(self.dh.parse_to_date("1993-10-01"), self.dh.parse_to_date("1993-10-02"))
+        result = updater._update_vm_usage_costs(
+            self.dh.parse_to_date("1993-10-01"), self.dh.parse_to_date("1993-10-02")
+        )
         self.assertFalse(result)
-
-    @patch("masu.processor.ocp.ocp_cost_model_cost_updater.CostModelDBAccessor")
-    @patch("masu.database.ocp_report_db_accessor.trino_table_exists", return_value=False)
-    def test_update_usage_costs(self, mock_trino_exists, mock_cost_accessor):
-        """Test that usage costs are updated for infrastructure and supplementary."""
-        infrastructure_rates = {
-            "cpu_core_usage_per_hour": 0.0070000000,
-            "cpu_core_request_per_hour": 0.2000000000,
-            "memory_gb_usage_per_hour": 0.0090000000,
-            "memory_gb_request_per_hour": 0.0500000000,
-        }
-        supplementary_rates = {
-            "storage_gb_usage_per_month": 0.0100000000,
-            "storage_gb_request_per_month": 0.0100000000,
-        }
-
-        mock_cost_accessor.return_value.__enter__.return_value.infrastructure_rates = infrastructure_rates
-        mock_cost_accessor.return_value.__enter__.return_value.supplementary_rates = supplementary_rates
-        mock_cost_accessor.return_value.__enter__.return_value.distribution_info = {}
-
-        start_date = self.dh.this_month_start
-        end_date = self.dh.this_month_end
-
-        updater = OCPCostModelCostUpdater(schema=self.schema, provider=self.provider)
-        updater._update_usage_costs(start_date, end_date)
-
-        with schema_context(self.schema):
-            pod_line_items = OCPUsageLineItemDailySummary.objects.filter(
-                usage_start__gte=start_date,
-                data_source="Pod",
-                cluster_id=self.cluster_id,
-                cost_model_rate_type="Infrastructure",
-                monthly_cost_type__isnull=True,
-                distributed_cost__gt=0,
-            ).all()
-            for line_item in pod_line_items:
-                self.assertNotEqual(line_item.cost_model_cpu_cost, 0)
-                self.assertNotEqual(line_item.cost_model_memory_cost, 0)
-                self.assertEqual(line_item.cost_model_volume_cost, 0)
-
-            volume_line_items = OCPUsageLineItemDailySummary.objects.filter(
-                usage_start__gte=start_date,
-                data_source="Storage",
-                cluster_id=self.cluster_id,
-                cost_model_rate_type="Supplementary",
-                monthly_cost_type__isnull=True,
-            ).all()
-
-            for line_item in volume_line_items:
-                self.assertEqual(line_item.cost_model_cpu_cost, 0)
-                self.assertEqual(line_item.cost_model_memory_cost, 0)
-                self.assertNotEqual(line_item.cost_model_volume_cost, 0)
 
     @patch("masu.database.ocp_report_db_accessor.trino_table_exists", return_value=False)
     @patch("masu.processor.ocp.ocp_cost_model_cost_updater.CostModelDBAccessor")

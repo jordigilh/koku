@@ -144,8 +144,8 @@ class RateIntegrationTest(IamTestCase):
 
     @patch("cost_models.serializers.is_cost_model_writes_disabled", return_value=False)
     @patch("cost_models.cost_model_manager.update_cost_model_costs")
-    def test_price_list_json_synced_with_rate_table(self, mock_task, mock_flag):
-        """Test that PriceList.rates JSON and Rate table stay in sync."""
+    def test_rate_table_rows_created_for_cost_model(self, mock_task, mock_flag):
+        """Test that Rate table rows are created when a cost model is saved."""
         with tenant_context(self.tenant):
             data = self._build_cost_model_data()
             serializer = CostModelSerializer(data=data, context=self.request_context)
@@ -153,12 +153,12 @@ class RateIntegrationTest(IamTestCase):
             cost_model = serializer.save()
 
             mapping = PriceListCostModelMap.objects.get(cost_model=cost_model)
-            pl = mapping.price_list
-            pl.refresh_from_db()
-
-            rate = Rate.objects.get(price_list=pl)
-            self.assertEqual(pl.rates[0]["rate_id"], str(rate.uuid))
-            self.assertEqual(pl.rates[0]["custom_name"], rate.custom_name)
+            rate = Rate.objects.get(price_list=mapping.price_list)
+            self.assertEqual(rate.metric, self.ocp_metric)
+            self.assertIsNotNone(rate.custom_name)
+            reconstructed = cost_model.rates
+            self.assertEqual(len(reconstructed), 1)
+            self.assertEqual(reconstructed[0]["rate_id"], str(rate.uuid))
 
     @patch("cost_models.serializers.is_cost_model_writes_disabled", return_value=False)
     @patch("cost_models.cost_model_manager.update_cost_model_costs")

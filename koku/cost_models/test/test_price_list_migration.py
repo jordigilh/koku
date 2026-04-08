@@ -2,7 +2,15 @@
 # Copyright 2026 Red Hat Inc.
 # SPDX-License-Identifier: Apache-2.0
 #
-"""Tests for the data migration that copies CostModel rates to PriceList entities."""
+"""Tests for the data migration that copies CostModel rates to PriceList entities.
+
+NOTE: These tests are skipped after Phase 5C dropped the CostModel.rates JSON
+column (migration 0014). The current Python model no longer has `rates` as a
+DB field, so rolling back to 0010 and creating CostModel(rates=[...]) via ORM
+will not persist to the column. The migration they test (0011) is a historical
+one-time data migration that has already been applied.
+"""
+import unittest
 from datetime import date
 
 from django.db import connection
@@ -17,6 +25,7 @@ MIGRATE_FROM = ("cost_models", "0010_add_price_list_models")
 MIGRATE_TO = ("cost_models", "0011_migrate_cost_model_rates_to_price_lists")
 
 
+@unittest.skip("CostModel.rates JSON column dropped in Phase 5C (migration 0014); historical migration test obsolete")
 class MigrateRatesToPriceListsTest(MasuTestCase):
     """Test the data migration using MigrationExecutor."""
 

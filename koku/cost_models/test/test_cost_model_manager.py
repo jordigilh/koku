@@ -18,6 +18,7 @@ from cost_models.cost_model_manager import CostModelManager
 from cost_models.models import CostModel
 from cost_models.models import CostModelMap
 from cost_models.models import PriceListCostModelMap
+from cost_models.models import Rate
 
 
 class MockResponse:
@@ -54,10 +55,10 @@ class CostModelManagerTest(IamTestCase):
             with patch("cost_models.cost_model_manager.update_cost_model_costs"):
                 cost_model_obj = manager.create(**data)
             self.assertIsNotNone(cost_model_obj.uuid)
-            for rate in cost_model_obj.rates:
-                self.assertEqual(rate.get("metric", {}).get("name"), metric)
-                self.assertEqual(rate.get("tiered_rates"), tiered_rates)
-                self.assertEqual(rate.get("source_type"), source_type)
+            rates = cost_model_obj.rates
+            self.assertEqual(len(rates), 1)
+            self.assertEqual(rates[0].get("metric", {}).get("name"), metric)
+            self.assertEqual(rates[0].get("tiered_rates"), tiered_rates)
 
             cost_model_map = CostModelMap.objects.filter(cost_model=cost_model_obj)
             self.assertEqual(len(cost_model_map), 0)
@@ -87,10 +88,10 @@ class CostModelManagerTest(IamTestCase):
                 cost_model_obj = manager.create(**data)
                 mock_update.s.return_value.set.return_value.apply_async.assert_called()
             self.assertIsNotNone(cost_model_obj.uuid)
-            for rate in cost_model_obj.rates:
-                self.assertEqual(rate.get("metric", {}).get("name"), metric)
-                self.assertEqual(rate.get("tiered_rates"), tiered_rates)
-                self.assertEqual(rate.get("source_type"), source_type)
+            rates = cost_model_obj.rates
+            self.assertEqual(len(rates), 1)
+            self.assertEqual(rates[0].get("metric", {}).get("name"), metric)
+            self.assertEqual(rates[0].get("tiered_rates"), tiered_rates)
 
             cost_model_map = CostModelMap.objects.filter(cost_model=cost_model_obj)
             self.assertIsNotNone(cost_model_map)
@@ -174,10 +175,10 @@ class CostModelManagerTest(IamTestCase):
                 cost_model_obj = manager.create(**data)
                 mock_update.s.return_value.set.return_value.apply_async.assert_called()
             self.assertIsNotNone(cost_model_obj.uuid)
-            for rate in cost_model_obj.rates:
-                self.assertEqual(rate.get("metric", {}).get("name"), metric)
-                self.assertEqual(rate.get("tiered_rates"), tiered_rates)
-                self.assertEqual(rate.get("source_type"), source_type)
+            rates = cost_model_obj.rates
+            self.assertEqual(len(rates), 1)
+            self.assertEqual(rates[0].get("metric", {}).get("name"), metric)
+            self.assertEqual(rates[0].get("tiered_rates"), tiered_rates)
 
             cost_model_map = CostModelMap.objects.filter(cost_model=cost_model_obj)
             self.assertEqual(len(cost_model_map), 2)
@@ -367,10 +368,10 @@ class CostModelManagerTest(IamTestCase):
                 cost_model_obj = manager.create(**data)
             self.assertIsNotNone(cost_model_obj.uuid)
             self.assertEqual(cost_model_obj.distribution, distribution)
-            for rate in cost_model_obj.rates:
-                self.assertEqual(rate.get("metric", {}).get("name"), metric)
-                self.assertEqual(rate.get("tiered_rates"), tiered_rates)
-                self.assertEqual(rate.get("source_type"), source_type)
+            rates = cost_model_obj.rates
+            self.assertEqual(len(rates), 1)
+            self.assertEqual(rates[0].get("metric", {}).get("name"), metric)
+            self.assertEqual(rates[0].get("tiered_rates"), tiered_rates)
             data["distribution"] = update_distribution
             with patch("cost_models.cost_model_manager.update_cost_model_costs"):
                 cost_model_obj = manager.update(**data)
@@ -396,7 +397,9 @@ class CostModelManagerTest(IamTestCase):
             mapping = PriceListCostModelMap.objects.filter(cost_model=cost_model_obj).first()
             self.assertIsNotNone(mapping)
             self.assertEqual(mapping.priority, 1)
-            self.assertEqual(mapping.price_list.rates, rates)
+            rate_rows = Rate.objects.filter(price_list=mapping.price_list)
+            self.assertEqual(rate_rows.count(), 1)
+            self.assertEqual(rate_rows.first().metric, metric)
             self.assertEqual(mapping.price_list.currency, cost_model_obj.currency)
             self.assertEqual(mapping.price_list.name, "Test CM with PL prices")
 
@@ -434,11 +437,11 @@ class CostModelManagerTest(IamTestCase):
             with patch("cost_models.cost_model_manager.update_cost_model_costs"):
                 cost_model_obj = manager.create(**data)
 
-            # Verify PriceList was created with original rates
             mapping = PriceListCostModelMap.objects.get(cost_model=cost_model_obj)
-            self.assertEqual(mapping.price_list.rates, original_rates)
+            rate_rows = Rate.objects.filter(price_list=mapping.price_list)
+            self.assertEqual(rate_rows.count(), 1)
+            self.assertEqual(float(rate_rows.first().default_rate), 0.22)
 
-            # Update rates
             updated_rates = [
                 {
                     "metric": {"name": metric},
@@ -449,9 +452,9 @@ class CostModelManagerTest(IamTestCase):
             manager = CostModelManager(cost_model_uuid=cost_model_obj.uuid)
             manager.update(rates=updated_rates)
 
-            # Verify PriceList was synced
-            mapping.price_list.refresh_from_db()
-            self.assertEqual(mapping.price_list.rates, updated_rates)
+            rate_rows = Rate.objects.filter(price_list=mapping.price_list)
+            self.assertEqual(rate_rows.count(), 1)
+            self.assertEqual(float(rate_rows.first().default_rate), 0.50)
 
     def test_update_with_rates_creates_price_list_if_missing(self):
         """Test that updating rates creates a PriceList if no mapping exists."""
@@ -478,11 +481,16 @@ class CostModelManagerTest(IamTestCase):
                 }
             ]
             manager.update(rates=updated_rates)
-            self.assertEqual(manager.instance.rates, updated_rates)
+            reconstructed = manager.instance.rates
+            self.assertEqual(len(reconstructed), 1)
+            self.assertEqual(reconstructed[0]["metric"]["name"], metric)
+            self.assertEqual(reconstructed[0]["tiered_rates"], [{"value": 0.99, "unit": "USD"}])
 
             mapping = PriceListCostModelMap.objects.filter(cost_model=cost_model_obj).first()
             self.assertIsNotNone(mapping)
-            self.assertEqual(mapping.price_list.rates, updated_rates)
+            rate_rows = Rate.objects.filter(price_list=mapping.price_list)
+            self.assertEqual(rate_rows.count(), 1)
+            self.assertEqual(float(rate_rows.first().default_rate), 0.99)
 
     def test_update_without_rates_no_sync(self):
         """Test that updating without rates in data does not sync to PriceList."""
@@ -508,6 +516,6 @@ class CostModelManagerTest(IamTestCase):
             manager = CostModelManager(cost_model_uuid=cost_model_obj.uuid)
             manager.update(name="Renamed CM")
 
-            # PriceList rates should be unchanged
-            mapping.price_list.refresh_from_db()
-            self.assertEqual(mapping.price_list.rates, original_rates)
+            rate_rows = Rate.objects.filter(price_list=mapping.price_list)
+            self.assertEqual(rate_rows.count(), 1)
+            self.assertEqual(float(rate_rows.first().default_rate), 0.22)

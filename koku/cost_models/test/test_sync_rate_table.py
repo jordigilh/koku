@@ -98,17 +98,16 @@ class SyncRateTableTest(IamTestCase):
             self.assertIn("rate_id", cm.rates[0])
             self.assertIn("custom_name", cm.rates[0])
 
-    def test_create_injects_rate_id_into_price_list_json(self):
-        """Test that create() also injects rate_id into PriceList.rates JSON."""
+    def test_create_populates_rate_id_in_reconstructed_rates(self):
+        """Test that the reconstructed CostModel.rates property includes rate_id."""
         with tenant_context(self.tenant):
             rates = [
                 {"metric": {"name": self.metric}, "tiered_rates": self.tiered_rates, "cost_type": "Infrastructure"}
             ]
             cm = self._create_cost_model(rates)
-            mapping = PriceListCostModelMap.objects.get(cost_model=cm)
-            pl = mapping.price_list
-            pl.refresh_from_db()
-            self.assertIn("rate_id", pl.rates[0])
+            reconstructed = cm.rates
+            self.assertEqual(len(reconstructed), 1)
+            self.assertIn("rate_id", reconstructed[0])
 
     def test_create_multiple_rates(self):
         """Test creating with multiple rates produces multiple Rate rows."""
