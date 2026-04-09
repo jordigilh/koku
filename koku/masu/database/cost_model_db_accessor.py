@@ -8,9 +8,11 @@ import logging
 from collections import defaultdict
 
 from django.db import transaction
+from django.db.models import Q
 
 from api.metrics import constants as metric_constants
 from cost_models.models import CostModel
+from cost_models.models import CostModelContext
 
 LOG = logging.getLogger(__name__)
 
@@ -18,16 +20,18 @@ LOG = logging.getLogger(__name__)
 class CostModelDBAccessor:
     """Class to interact with customer reporting tables."""
 
-    def __init__(self, schema, provider_uuid):
+    def __init__(self, schema, provider_uuid, cost_model_context=None):
         """Establish the database connection.
 
         Args:
             schema (str): The customer schema to associate with
             provider_uuid (str): Provider uuid
+            cost_model_context (str): Context name to filter by (None = backward compat)
 
         """
         self.schema = schema
         self.provider_uuid = provider_uuid
+        self.cost_model_context = cost_model_context or None
         self._cost_model = None
 
     def __enter__(self):
@@ -45,7 +49,17 @@ class CostModelDBAccessor:
     def cost_model(self):
         """Return the cost model database object."""
         if self._cost_model is None:
-            self._cost_model = CostModel.objects.filter(costmodelmap__provider_uuid=self.provider_uuid).first()
+            qs = CostModel.objects.filter(costmodelmap__provider_uuid=self.provider_uuid)
+            if self.cost_model_context is not None:
+                qs = qs.filter(costmodelmap__cost_model_context__name=self.cost_model_context)
+            else:
+                default_ctx = CostModelContext.objects.filter(is_default=True).first()
+                if default_ctx is not None:
+                    qs = qs.filter(
+                        Q(costmodelmap__cost_model_context=default_ctx)
+                        | Q(costmodelmap__cost_model_context__isnull=True)
+                    )
+            self._cost_model = qs.first()
         return self._cost_model
 
     @property

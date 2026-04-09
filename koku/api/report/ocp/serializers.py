@@ -155,6 +155,8 @@ class OCPQueryParamSerializer(ReportQueryParamSerializer):
     FILTER_SERIALIZER = OCPFilterSerializer
     EXCLUDE_SERIALIZER = OCPExcludeSerializer
 
+    cost_model_context = serializers.CharField(required=False, allow_null=True, default=None)
+
     def to_internal_value(self, data):
         """Send to internal value."""
         if delta_value := data.get("delta"):

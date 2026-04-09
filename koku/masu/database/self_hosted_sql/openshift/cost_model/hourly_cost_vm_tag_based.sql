@@ -15,6 +15,7 @@ INSERT INTO {{schema | sqlsafe}}.reporting_ocpusagelineitem_daily_summary (
     monthly_cost_type,
     cost_model_rate_type,
     cost_model_cpu_cost,
+    cost_model_context,
     cost_category_id
 )
 SELECT uuid_generate_v4(),
@@ -45,6 +46,7 @@ SELECT uuid_generate_v4(),
     {%- else %}
     max(vmhrs.vm_interval_hours) * CAST({{default_rate}} as DECIMAL(33, 15)) AS cost_model_cpu_cost,
     {%- endif %}
+    {{cost_model_context}} AS cost_model_context,
     cost_category_id
 FROM {{schema | sqlsafe}}.reporting_ocpusagelineitem_daily_summary AS lids
 JOIN (

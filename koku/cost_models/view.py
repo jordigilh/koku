@@ -23,12 +23,15 @@ from rest_framework import status
 from rest_framework import viewsets
 from rest_framework.exceptions import APIException
 from rest_framework.filters import OrderingFilter
+from rest_framework.response import Response
 
 from api.common.filters import CharListFilter
 from api.common.permissions.cost_models_access import CostModelsAccessPermission
 from api.currency.currencies import VALID_CURRENCIES
 from cost_models.cost_model_manager import CostModelManager
 from cost_models.models import CostModel
+from cost_models.models import CostModelContext
+from cost_models.serializers import CostModelContextSerializer
 from cost_models.serializers import CostModelSerializer
 
 LOG = logging.getLogger(__name__)
@@ -185,3 +188,24 @@ class CostModelViewSet(viewsets.ModelViewSet):
     @method_decorator(never_cache)
     def update(self, request, *args, **kwargs):
         return super().update(request=request, args=args, kwargs=kwargs)
+
+
+class CostModelContextViewSet(viewsets.ModelViewSet):
+    """CostModelContext CRUD ViewSet."""
+
+    queryset = CostModelContext.objects.all()
+    serializer_class = CostModelContextSerializer
+    permission_classes = (CostModelsAccessPermission,)
+    lookup_field = "uuid"
+    ordering = ("position",)
+    http_method_names = ["get", "post", "head", "delete", "put"]
+
+    @method_decorator(never_cache)
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.is_default:
+            return Response(
+                {"detail": "Cannot delete the default cost model context."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().destroy(request=request, args=args, kwargs=kwargs)

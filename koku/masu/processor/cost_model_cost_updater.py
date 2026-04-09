@@ -26,17 +26,19 @@ class CostModelCostUpdaterError(Exception):
 class CostModelCostUpdater:
     """Update reporting summary tables."""
 
-    def __init__(self, customer_schema, provider_uuid, tracing_id=None):
+    def __init__(self, customer_schema, provider_uuid, tracing_id=None, cost_model_context=None):
         """
         Initializer.
 
         Args:
             customer_schema (str): Schema name for given customer.
             provider_uuid (str): The provider uuid.
+            cost_model_context (str): Context name for multi-context support.
 
         """
         self._schema = customer_schema
         self.tracing_id = tracing_id
+        self._cost_model_context = cost_model_context
 
         self._provider = Provider.objects.filter(uuid=provider_uuid).first()
         try:
@@ -69,7 +71,7 @@ class CostModelCostUpdater:
         if self._provider.type in (Provider.PROVIDER_AZURE, Provider.PROVIDER_AZURE_LOCAL):
             return AzureCostModelCostUpdater(self._schema, self._provider)
         if self._provider.type in (Provider.PROVIDER_OCP,):
-            return OCPCostModelCostUpdater(self._schema, self._provider)
+            return OCPCostModelCostUpdater(self._schema, self._provider, cost_model_context=self._cost_model_context)
         if self._provider.type in (Provider.PROVIDER_GCP, Provider.PROVIDER_GCP_LOCAL):
             return GCPCostModelCostUpdater(self._schema, self._provider)
 

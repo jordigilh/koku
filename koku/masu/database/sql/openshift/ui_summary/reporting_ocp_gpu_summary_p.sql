@@ -2,6 +2,7 @@ DELETE FROM {{schema | sqlsafe}}.reporting_ocp_gpu_summary_p
 WHERE usage_start >= {{start_date}}::date
     AND usage_start <= {{end_date}}::date
     AND source_uuid = {{source_uuid}}
+    AND cost_model_context = {{cost_model_context}}
 ;
 
 INSERT INTO {{schema | sqlsafe}}.reporting_ocp_gpu_summary_p (
@@ -26,7 +27,8 @@ INSERT INTO {{schema | sqlsafe}}.reporting_ocp_gpu_summary_p (
     source_uuid,
     cost_category_id,
     raw_currency,
-    cost_model_rate_type
+    cost_model_rate_type,
+    cost_model_context
 )
     SELECT uuid_generate_v4() as id,
         cluster_id,
@@ -49,12 +51,14 @@ INSERT INTO {{schema | sqlsafe}}.reporting_ocp_gpu_summary_p (
         source_uuid,
         cost_category_id,
         max(raw_currency) as raw_currency,
-        max(cost_model_rate_type) as cost_model_rate_type
+        max(cost_model_rate_type) as cost_model_rate_type,
+        {{cost_model_context}} AS cost_model_context
     FROM {{schema | sqlsafe}}.reporting_ocpusagelineitem_daily_summary
     WHERE data_source = 'GPU'
         AND usage_start >= {{start_date}}::date
         AND usage_start <= {{end_date}}::date
         AND source_uuid = {{source_uuid}}
+        AND cost_model_context = {{cost_model_context}}
         AND cost_model_rate_type != 'gpu_distributed'
         AND namespace != 'GPU unallocated'
     GROUP BY cluster_id,

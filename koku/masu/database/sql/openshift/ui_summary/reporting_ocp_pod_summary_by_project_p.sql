@@ -2,6 +2,7 @@ DELETE FROM {{schema | sqlsafe}}.reporting_ocp_pod_summary_by_project_p
 WHERE usage_start >= {{start_date}}::date
     AND usage_start <= {{end_date}}::date
     AND source_uuid = {{source_uuid}}
+    AND cost_model_context = {{cost_model_context}}
 ;
 
 INSERT INTO {{schema | sqlsafe}}.reporting_ocp_pod_summary_by_project_p (
@@ -21,6 +22,7 @@ INSERT INTO {{schema | sqlsafe}}.reporting_ocp_pod_summary_by_project_p (
     cost_model_volume_cost,
     cost_model_gpu_cost,
     cost_model_rate_type,
+    cost_model_context,
     pod_usage_cpu_core_hours,
     pod_request_cpu_core_hours,
     pod_effective_usage_cpu_core_hours,
@@ -52,6 +54,7 @@ INSERT INTO {{schema | sqlsafe}}.reporting_ocp_pod_summary_by_project_p (
         sum(cost_model_volume_cost) as cost_model_volume_cost,
         sum(cost_model_gpu_cost) as cost_model_gpu_cost,
         cost_model_rate_type,
+        {{cost_model_context}} AS cost_model_context,
         sum(pod_usage_cpu_core_hours) as pod_usage_cpu_core_hours,
         sum(pod_request_cpu_core_hours) as pod_request_cpu_core_hours,
         sum(pod_effective_usage_cpu_core_hours) as pod_effective_usage_cpu_core_hours,
@@ -70,6 +73,7 @@ INSERT INTO {{schema | sqlsafe}}.reporting_ocp_pod_summary_by_project_p (
     WHERE usage_start >= {{start_date}}::date
         AND usage_start <= {{end_date}}::date
         AND source_uuid = {{source_uuid}}
+        AND cost_model_context = {{cost_model_context}}
         AND data_source = 'Pod'
         AND namespace IS DISTINCT FROM 'Worker unallocated'
         AND namespace IS DISTINCT FROM 'Platform unallocated'

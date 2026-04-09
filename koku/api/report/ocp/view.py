@@ -6,6 +6,7 @@
 from rest_framework import status
 from rest_framework.response import Response
 
+from api.common.permissions.cost_model_context_access import CostModelContextPermission
 from api.common.permissions.openshift_access import OpenShiftAccessPermission
 from api.common.throttling import OcpTagQueryThrottle
 from api.models import Provider
@@ -23,7 +24,7 @@ from masu.processor import OCP_GPU_COST_MODEL_UNLEASH_FLAG
 class OCPView(ReportView):
     """OCP Base View."""
 
-    permission_classes = [OpenShiftAccessPermission]
+    permission_classes = [OpenShiftAccessPermission, CostModelContextPermission]
     throttle_classes = [OcpTagQueryThrottle]
     provider = Provider.PROVIDER_OCP
     serializer = OCPInventoryQueryParamSerializer

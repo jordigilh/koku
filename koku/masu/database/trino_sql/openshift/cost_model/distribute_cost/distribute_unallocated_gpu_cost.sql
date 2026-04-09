@@ -10,6 +10,7 @@ INSERT INTO postgres.{{schema | sqlsafe}}.reporting_ocpusagelineitem_daily_summa
     node,
     source_uuid,
     cost_model_rate_type,
+    cost_model_context,
     distributed_cost
 )
 WITH unattributed_gpu_cost as (
@@ -26,6 +27,7 @@ WITH unattributed_gpu_cost as (
       AND usage_start >= DATE({{start_date}})
       AND usage_start <= DATE({{end_date}})
       AND source_uuid = CAST({{source_uuid}} AS UUID)
+      AND cost_model_context = {{cost_model_context}}
 ),
 namespace_usage_information as (
     SELECT gpu_model_name,
@@ -59,6 +61,7 @@ SELECT
     nsp_usage.node,
     CAST({{source_uuid}} AS UUID),
     {{cost_model_rate_type}},
+    {{cost_model_context}} AS cost_model_context,
     max(nsp_usage.pod_usage_slice_hours / NULLIF(total_usage.total_slice_hours, 0) * unattributed.gpu_unallocated_cost) as distributed_cost
 FROM namespace_usage_information as nsp_usage
 JOIN unattributed_gpu_cost as unattributed
@@ -85,6 +88,7 @@ SELECT
     unalloc.node,
     CAST({{source_uuid}} AS UUID),
     {{cost_model_rate_type}},
+    {{cost_model_context}} AS cost_model_context,
     0 - unalloc.cost_model_gpu_cost as distributed_cost
 FROM postgres.{{schema | sqlsafe}}.reporting_ocpusagelineitem_daily_summary as unalloc
 WHERE unalloc.namespace = 'GPU unallocated'
@@ -92,6 +96,7 @@ WHERE unalloc.namespace = 'GPU unallocated'
     AND unalloc.usage_start >= DATE({{start_date}})
     AND unalloc.usage_start <= DATE({{end_date}})
     AND unalloc.source_uuid = CAST({{source_uuid}} AS UUID)
+    AND unalloc.cost_model_context = {{cost_model_context}}
     AND EXISTS (
         SELECT 1 FROM hive.{{schema | sqlsafe}}.openshift_gpu_usage_line_items_daily as gpu
         WHERE gpu.node = unalloc.node

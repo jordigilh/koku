@@ -201,9 +201,10 @@ class OCPProviderMap(ProviderMap):
             ),
         }
 
-    def __init__(self, provider, report_type, schema_name):
+    def __init__(self, provider, report_type, schema_name, cost_model_context=None):
         """Constructor."""
         self._schema_name = schema_name
+        self._cost_model_context = cost_model_context
         self._mapping = [
             {
                 "provider": Provider.PROVIDER_OCP,

@@ -369,7 +369,8 @@ class OCPCostModelCostUpdaterTest(MasuTestCase):
         updater._update_tag_usage_costs(start_date, end_date)
         # assert that populate_tag_usage_costs was called with the correct info
         mock_update_usage.assert_called_once_with(
-            infrastructure_rates, supplementary_rates, start_date, end_date, self.cluster_id
+            infrastructure_rates, supplementary_rates, start_date, end_date, self.cluster_id,
+            cost_model_context=None,
         )
 
     def test_delete_tag_usage_costs_no_report_period(self):

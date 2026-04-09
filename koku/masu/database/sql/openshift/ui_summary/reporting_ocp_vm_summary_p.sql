@@ -2,6 +2,7 @@ DELETE FROM {{schema | sqlsafe}}.reporting_ocp_vm_summary_p
 WHERE usage_start >= {{start_date}}::date
     AND usage_start <= {{end_date}}::date
     AND source_uuid = {{source_uuid}}
+    AND cost_model_context = {{cost_model_context}}
 ;
 
 WITH cte_latest_pod_labels AS (
@@ -19,6 +20,7 @@ WITH cte_latest_pod_labels AS (
             WHERE usage_start >= {{start_date}}::date
                 AND usage_start <= {{end_date}}::date
                 AND source_uuid = {{source_uuid}}
+                AND cost_model_context = {{cost_model_context}}
                 AND pod_request_cpu_core_hours IS NOT NULL
             ORDER BY day DESC
             LIMIT 2
@@ -26,6 +28,7 @@ WITH cte_latest_pod_labels AS (
         ORDER BY day
         LIMIT 1
     )
+    AND cost_model_context = {{cost_model_context}}
     AND pod_request_cpu_core_hours IS NOT NULL
     AND all_labels ? 'vm_kubevirt_io_name'
     ORDER BY vm_name, usage_start DESC
@@ -52,6 +55,7 @@ INSERT INTO {{schema | sqlsafe}}.reporting_ocp_vm_summary_p (
     cost_model_cpu_cost,
     cost_model_memory_cost,
     cost_model_rate_type,
+    cost_model_context,
     cost_model_volume_cost,
     cost_model_gpu_cost,
     distributed_cost,
@@ -76,6 +80,7 @@ SELECT uuid_generate_v4() as id,
     sum(cost_model_cpu_cost) as cost_model_cpu_cost,
     sum(cost_model_memory_cost) as cost_model_memory_cost,
     cost_model_rate_type,
+    {{cost_model_context}} AS cost_model_context,
     sum(cost_model_volume_cost) as cost_model_volume_cost,
     sum(cost_model_gpu_cost) as cost_model_gpu_cost,
     sum(distributed_cost) as distributed_cost,
@@ -96,6 +101,7 @@ INNER JOIN cte_latest_resources as latest
 WHERE usage_start >= {{start_date}}::date
     AND usage_start <= {{end_date}}::date
     AND source_uuid = {{source_uuid}}
+    AND cost_model_context = {{cost_model_context}}
     AND data_source = 'Pod'
     AND pod_labels ? 'vm_kubevirt_io_name'
     AND namespace IS DISTINCT FROM 'Worker unallocated'
@@ -135,6 +141,7 @@ cte_node_usage AS (
     WHERE usage_start >= {{start_date}}::date
         AND usage_start <= {{end_date}}::date
         AND source_uuid = {{source_uuid}}
+        AND cost_model_context = {{cost_model_context}}
     GROUP BY namespace, node, usage_start
 ),
 cte_latest_resources AS (
@@ -155,7 +162,8 @@ cte_latest_resources AS (
         ON cte_node_usage.namespace = ocp.namespace
         AND cte_node_usage.node = ocp.node
         AND cte_node_usage.usage_start = ocp.usage_start
-    WHERE pod_labels ? 'vm_kubevirt_io_name'
+    WHERE ocp.cost_model_context = {{cost_model_context}}
+        AND pod_labels ? 'vm_kubevirt_io_name'
         AND pod_effective_usage_cpu_core_hours != 0
         AND pod_effective_usage_memory_gigabyte_hours != 0
     GROUP BY vm_name, cte_distribution_type.dt, cte_node_usage.usage_start, cte_node_usage.node, cte_node_usage.namespace, pod_labels
@@ -168,6 +176,7 @@ INSERT INTO {{schema | sqlsafe}}.reporting_ocp_vm_summary_p (
     node,
     vm_name,
     cost_model_rate_type,
+    cost_model_context,
     distributed_cost,
     pod_labels,
     raw_currency,
@@ -184,6 +193,7 @@ SELECT
     node,
     latest.vm_name as vm_name,
     cost_model_rate_type,
+    {{cost_model_context}} AS cost_model_context,
     sum(distributed_cost * latest.ratio) as distributed_cost, -- the only cost inserted in this statement
     pod_labels,
     max(raw_currency) as raw_currency,
@@ -197,6 +207,7 @@ JOIN cte_latest_resources as latest
     AND latest.namespace_name = ocp.namespace
     AND latest.usage_start = ocp.usage_start
 WHERE source_uuid = {{source_uuid}}
+    AND ocp.cost_model_context = {{cost_model_context}}
     AND distributed_cost != 0
 GROUP BY cluster_alias, cluster_id, namespace, node, vm_name, pod_labels, cost_model_rate_type
 
@@ -214,6 +225,7 @@ INSERT INTO {{schema | sqlsafe}}.reporting_ocp_vm_summary_p (
     cost_model_cpu_cost,
     cost_model_memory_cost,
     cost_model_rate_type,
+    cost_model_context,
     cost_model_volume_cost,
     cost_model_gpu_cost,
     distributed_cost,
@@ -247,6 +259,7 @@ second_to_last_day AS (
         WHERE usage_start >= {{start_date}}::date
             AND usage_start <= {{end_date}}::date
             AND source_uuid = {{source_uuid}}
+            AND cost_model_context = {{cost_model_context}}
             AND persistentvolumeclaim IS NOT NULL
         ORDER BY day DESC
         LIMIT 2
@@ -271,6 +284,7 @@ latest_storage_data AS (
         ON map.vm_name = vm_labels.vm_name
     WHERE usage_start::date = (SELECT day FROM second_to_last_day)
         AND ocp.persistentvolumeclaim IS NOT NULL
+        AND ocp.cost_model_context = {{cost_model_context}}
         AND map.pvc_name IS NOT NULL
     ORDER BY persistentvolumeclaim, usage_start DESC
 )
@@ -284,6 +298,7 @@ SELECT uuid_generate_v4() as id,
     sum(cost_model_cpu_cost) as cost_model_cpu_cost,
     sum(cost_model_memory_cost) as cost_model_memory_cost,
     cost_model_rate_type,
+    {{cost_model_context}} AS cost_model_context,
     sum(cost_model_volume_cost) as cost_model_volume_cost,
     sum(cost_model_gpu_cost) as cost_model_gpu_cost,
     sum(distributed_cost) as distributed_cost,
@@ -305,6 +320,7 @@ JOIN latest_storage_data AS storage
 WHERE usage_start >= {{start_date}}::date
     AND usage_start <= {{end_date}}::date
     AND source_uuid = {{source_uuid}}
+    AND ocp.cost_model_context = {{cost_model_context}}
     AND data_source = 'Storage'
     AND ocp.node IS NOT NULL
     AND ocp.resource_id IS NOT NULL

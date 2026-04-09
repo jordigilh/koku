@@ -40,6 +40,7 @@ from masu.exceptions import MasuProcessingError
 from masu.exceptions import MasuProviderError
 from masu.external.downloader.report_downloader_base import ReportDownloaderWarning
 from masu.external.report_downloader import ReportDownloaderError
+from masu.processor import is_context_writes_disabled
 from masu.processor import is_ocp_on_cloud_summary_disabled
 from masu.processor import is_rate_limit_customer_large
 from masu.processor import is_source_disabled
@@ -909,6 +910,34 @@ def update_all_summary_tables(start_date, end_date=None):
         ).apply_async(queue=queue_name or fallback_queue)
 
 
+def _check_missing_context_assignment(schema_name, provider_uuid, tracing_id=None):
+    """Emit notification when a provider has a context with no cost model assigned."""
+    try:
+        from cost_models.models import CostModelMap
+
+        with schema_context(schema_name):
+            orphaned = CostModelMap.objects.filter(
+                provider_uuid=provider_uuid,
+                cost_model__isnull=True,
+            ).select_related("cost_model_context")
+            for mapping in orphaned:
+                ctx_name = mapping.cost_model_context.name if mapping.cost_model_context else "unknown"
+                provider = Provider.objects.filter(uuid=provider_uuid).first()
+                if provider is not None:
+                    from koku.notifications import NotificationService
+
+                    ns = NotificationService()
+                    ns.missing_context_assignment_notification(provider, ctx_name, schema_name)
+                    LOG.info(
+                        log_json(
+                            tracing_id,
+                            msg=f"Sent missing-context-assignment notification for context '{ctx_name}'",
+                        )
+                    )
+    except Exception:
+        LOG.warning(log_json(tracing_id, msg="Failed to check context assignment notifications"))
+
+
 @celery_app.task(name="masu.processor.tasks.update_cost_model_costs", queue=CostModelQueue.DEFAULT)
 def update_cost_model_costs(  # noqa: C901
     schema_name,
@@ -918,6 +947,7 @@ def update_cost_model_costs(  # noqa: C901
     queue_name=None,
     synchronous=False,
     tracing_id=None,
+    cost_model_context=None,
 ):
     """Update usage charge information.
 
@@ -926,13 +956,53 @@ def update_cost_model_costs(  # noqa: C901
         provider_uuid (str) The provider uuid.
         start_date (str, Optional) - Start date of range to update derived cost.
         end_date (str, Optional) - End date of range to update derived cost.
+        cost_model_context (str, Optional) - Context name. None = dispatch per-context.
 
     Returns
         None
 
     """
+    cost_model_context = cost_model_context or None
+    if cost_model_context is None:
+        from cost_models.models import CostModelContext
+
+        with schema_context(schema_name):
+            contexts = list(CostModelContext.objects.values_list("name", flat=True))
+        if not contexts:
+            contexts = [None]
+        if len(contexts) > 1:
+            if synchronous:
+                for ctx_name in contexts:
+                    update_cost_model_costs(
+                        schema_name,
+                        provider_uuid,
+                        start_date=start_date,
+                        end_date=end_date,
+                        queue_name=queue_name,
+                        synchronous=True,
+                        tracing_id=tracing_id,
+                        cost_model_context=ctx_name,
+                    )
+                return
+            else:
+                fallback_queue = get_customer_queue(schema_name, CostModelQueue)
+                for ctx_name in contexts:
+                    update_cost_model_costs.s(
+                        schema_name,
+                        provider_uuid,
+                        start_date=start_date,
+                        end_date=end_date,
+                        queue_name=queue_name,
+                        synchronous=False,
+                        tracing_id=tracing_id,
+                        cost_model_context=ctx_name,
+                    ).apply_async(queue=queue_name or fallback_queue)
+                return
+        else:
+            cost_model_context = contexts[0]
+
     task_name = "masu.processor.tasks.update_cost_model_costs"
-    cache_args = [schema_name, provider_uuid, start_date, end_date]
+    cache_args = [schema_name, provider_uuid, cost_model_context or "default", start_date, end_date]
     if not synchronous:
         worker_cache = WorkerCache()
         timeout = settings.WORKER_CACHE_TIMEOUT
@@ -954,22 +1024,39 @@ def update_cost_model_costs(  # noqa: C901
                 queue_name=queue_name,
                 synchronous=synchronous,
                 tracing_id=tracing_id,
+                cost_model_context=cost_model_context,
             ).apply_async(queue=queue_name or fallback_queue)
             return
         worker_cache.lock_single_task(task_name, cache_args, timeout=timeout)
 
     worker_stats.COST_MODEL_COST_UPDATE_ATTEMPTS_COUNTER.inc()
 
+    if cost_model_context and is_context_writes_disabled(schema_name):
+        LOG.info(
+            log_json(
+                tracing_id,
+                msg="skipping context-tagged cost model update — write freeze active",
+                schema=schema_name,
+                cost_model_context=cost_model_context,
+            )
+        )
+        if not synchronous:
+            worker_cache.release_single_task(task_name, cache_args)
+        return
+
     context = {
         "schema": schema_name,
         "provider_uuid": provider_uuid,
         "start_date": start_date,
         "end_date": end_date,
+        "cost_model_context": cost_model_context,
     }
     LOG.info(log_json(tracing_id, msg="updating cost model costs", context=context))
 
     try:
-        if updater := CostModelCostUpdater(schema_name, provider_uuid, tracing_id):
+        if updater := CostModelCostUpdater(
+            schema_name, provider_uuid, tracing_id, cost_model_context=cost_model_context
+        ):
             updater.update_cost_model_costs(start_date, end_date)
         if provider := Provider.objects.filter(uuid=provider_uuid).first():
             provider.set_data_updated_timestamp()
@@ -977,6 +1064,8 @@ def update_cost_model_costs(  # noqa: C901
         if not synchronous:
             worker_cache.release_single_task(task_name, cache_args)
         raise ex
+    finally:
+        _check_missing_context_assignment(schema_name, provider_uuid, tracing_id)
 
     if not synchronous:
         worker_cache.release_single_task(task_name, cache_args)

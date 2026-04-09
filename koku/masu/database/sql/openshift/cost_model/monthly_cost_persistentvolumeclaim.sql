@@ -38,6 +38,7 @@ INSERT INTO {{schema | sqlsafe}}.reporting_ocpusagelineitem_daily_summary (
     cost_model_cpu_cost,
     cost_model_memory_cost,
     cost_model_volume_cost,
+    cost_model_context,
     monthly_cost_type,
     cost_category_id
 )
@@ -96,6 +97,7 @@ SELECT uuid_generate_v4(),
             THEN {{rate}}::decimal / vc.pvc_count
         ELSE 0
     END AS cost_model_volume_cost,
+    {{cost_model_context}} AS cost_model_context,
     {{cost_type}} as monthly_cost_type,
     lids.cost_category_id
 FROM {{schema | sqlsafe}}.reporting_ocpusagelineitem_daily_summary AS lids

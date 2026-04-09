@@ -13,6 +13,7 @@ INSERT INTO postgres.{{schema | sqlsafe}}.reporting_ocpusagelineitem_daily_summa
     source_uuid,
     cost_model_rate_type,
     cost_model_gpu_cost,
+    cost_model_context,
     monthly_cost_type,
     cost_category_id
 )
@@ -83,6 +84,7 @@ SELECT
     {%- else %}
     0,
     {%- endif %}
+    {{cost_model_context}} AS cost_model_context,
     'Tag' AS monthly_cost_type,
     cat_ns.cost_category_id
 FROM hive.{{schema | sqlsafe}}.openshift_gpu_usage_line_items_daily AS gpu
@@ -118,6 +120,7 @@ INSERT INTO postgres.{{schema | sqlsafe}}.reporting_ocpusagelineitem_daily_summa
     source_uuid,
     cost_model_rate_type,
     cost_model_gpu_cost,
+    cost_model_context,
     monthly_cost_type
 )
 WITH cte_unutilized_uptime_hours AS (
@@ -216,6 +219,7 @@ SELECT
     {%- else %}
     0,
     {%- endif %}
+    {{cost_model_context}} AS cost_model_context,
     'Tag' AS monthly_cost_type
 FROM cte_unutilized_uptime_hours as hrs
 WHERE unutilized_uptime > 0

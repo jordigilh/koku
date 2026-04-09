@@ -2,6 +2,7 @@ DELETE FROM {{schema | sqlsafe}}.reporting_ocp_volume_summary_by_project_p
 WHERE usage_start >= {{start_date}}::date
     AND usage_start <= {{end_date}}::date
     AND source_uuid = {{source_uuid}}
+    AND cost_model_context = {{cost_model_context}}
 ;
 
 INSERT INTO {{schema | sqlsafe}}.reporting_ocp_volume_summary_by_project_p (
@@ -21,6 +22,7 @@ INSERT INTO {{schema | sqlsafe}}.reporting_ocp_volume_summary_by_project_p (
     cost_model_volume_cost,
     cost_model_gpu_cost,
     cost_model_rate_type,
+    cost_model_context,
     volume_request_storage_gigabyte_months,
     persistentvolumeclaim_usage_gigabyte_months,
     persistentvolumeclaim_capacity_gigabyte_months,
@@ -47,6 +49,7 @@ INSERT INTO {{schema | sqlsafe}}.reporting_ocp_volume_summary_by_project_p (
         sum(cost_model_volume_cost) as cost_model_volume_cost,
         sum(cost_model_gpu_cost) as cost_model_gpu_cost,
         cost_model_rate_type,
+        {{cost_model_context}} AS cost_model_context,
         sum(volume_request_storage_gigabyte_months) as volume_request_storage_gigabyte_months,
         sum(persistentvolumeclaim_usage_gigabyte_months) as persistentvolumeclaim_usage_gigabyte_months,
         sum(persistentvolumeclaim_capacity_gigabyte_months) as persistentvolumeclaim_capacity_gigabyte_months,
@@ -60,6 +63,7 @@ INSERT INTO {{schema | sqlsafe}}.reporting_ocp_volume_summary_by_project_p (
     WHERE usage_start >= {{start_date}}::date
         AND usage_start <= {{end_date}}::date
         AND source_uuid = {{source_uuid}}
+        AND cost_model_context = {{cost_model_context}}
         AND data_source = 'Storage'
         AND persistentvolumeclaim IS NOT NULL
     GROUP BY usage_start, cluster_id, cluster_alias, namespace, cost_model_rate_type, persistentvolumeclaim, storageclass

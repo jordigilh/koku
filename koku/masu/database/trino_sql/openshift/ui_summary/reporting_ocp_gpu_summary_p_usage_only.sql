@@ -17,7 +17,8 @@ INSERT INTO postgres.{{schema | sqlsafe}}.reporting_ocp_gpu_summary_p (
     mig_strategy,
     mig_memory_capacity_gb,
     source_uuid,
-    cost_category_id
+    cost_category_id,
+    cost_model_context
 )
 SELECT uuid(),
     {{cluster_id}} as cluster_id,
@@ -37,7 +38,8 @@ SELECT uuid(),
     max(gpu.mig_strategy) as mig_strategy,
     max(gpu.mig_memory_capacity_mib) * 0.001048576 as mig_memory_capacity_gb,
     cast({{source_uuid}} as UUID),
-    max(cat_ns.cost_category_id)
+    max(cat_ns.cost_category_id),
+    {{cost_model_context}} AS cost_model_context
 FROM hive.{{schema | sqlsafe}}.openshift_gpu_usage_line_items_daily AS gpu
 LEFT JOIN postgres.{{schema | sqlsafe}}.reporting_ocp_cost_category_namespace AS cat_ns
         ON gpu.namespace LIKE cat_ns.namespace
@@ -46,4 +48,4 @@ WHERE gpu.source = {{source_uuid}}
     AND lpad(gpu.month, 2, '0') = {{month}} -- Zero pad the month when fewer than 2 characters
     AND date(gpu.interval_start) >= date({{start_date}})
     AND date(gpu.interval_start) <= date({{end_date}})
-GROUP BY gpu.namespace, gpu.node, gpu.gpu_vendor_name, gpu.gpu_model_name, gpu.mig_profile, gpu.interval_start
+GROUP BY gpu.namespace, gpu.node, gpu.gpu_vendor_name, gpu.gpu_model_name, gpu.mig_profile, gpu.interval_start, {{cost_model_context}}

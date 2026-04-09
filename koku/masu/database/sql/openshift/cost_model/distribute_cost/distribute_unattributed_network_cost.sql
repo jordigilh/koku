@@ -31,6 +31,7 @@ WITH cte_narrow_dataset as (
     WHERE lids.usage_start >= {{start_date}}::date
         AND lids.usage_start <= {{end_date}}::date
         AND lids.report_period_id = {{report_period_id}}
+        AND lids.cost_model_context = {{cost_model_context}}
         AND lids.namespace != 'Storage unattributed'
         AND lids.namespace != 'Worker unallocated'
         AND (lids.cost_category_id IS NULL OR cat.name != 'Platform')
@@ -126,6 +127,7 @@ INSERT INTO {{schema | sqlsafe}}.reporting_ocpusagelineitem_daily_summary (
     cluster_capacity_memory_gigabyte_hours,
     source_uuid,
     cost_model_rate_type,
+    cost_model_context,
     distributed_cost,
     cost_category_id,
     raw_currency
@@ -149,6 +151,7 @@ SELECT
     ctl.cluster_capacity_memory_gigabyte_hours,
     UUID '{{source_uuid | sqlsafe}}' as source_uuid,
     {{cost_model_rate_type}} as cost_model_rate_type,
+    {{cost_model_context}} AS cost_model_context,
     ctl.distributed_cost,
     ctl.cost_category_id,
     ctl.raw_currency

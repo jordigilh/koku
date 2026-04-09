@@ -7,5 +7,6 @@ WHERE lids.report_period_id = {{report_period_id}}
     {%- else %}
     AND lids.cost_model_rate_type IS NOT NULL
     {%- endif %}
+    AND lids.cost_model_context = {{cost_model_context}}
     AND lids.monthly_cost_type = {{cost_type}}
 ;

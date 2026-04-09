@@ -13,7 +13,8 @@ INSERT INTO postgres.{{schema | sqlsafe}}.reporting_ocpusagelineitem_daily_summa
     source_uuid,
     monthly_cost_type,
     cost_model_rate_type,
-    cost_model_cpu_cost
+    cost_model_cpu_cost,
+    cost_model_context
 )
 WITH filtered_data as (
     select
@@ -99,7 +100,8 @@ SELECT
         WHEN nc.node_count < 1
         THEN fd.amortized_cost
         ELSE fd.amortized_cost / nc.node_count
-    END
+    END,
+    {{cost_model_context}} AS cost_model_context
 FROM filtered_data as fd
 JOIN node_count as nc
     ON fd.namespace = nc.namespace

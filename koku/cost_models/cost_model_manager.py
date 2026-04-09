@@ -15,6 +15,7 @@ from api.utils import DateHelper
 from common.queues import get_customer_queue
 from common.queues import PriorityQueue
 from cost_models.models import CostModel
+from cost_models.models import CostModelContext
 from cost_models.models import CostModelMap
 from cost_models.models import PriceList
 from cost_models.models import PriceListCostModelMap
@@ -52,19 +53,31 @@ class CostModelManager:
         """Create cost model and optionally associate to providers."""
         cost_model_data = copy.deepcopy(data)
         provider_uuids = cost_model_data.pop("provider_uuids", [])
+        cost_model_context = cost_model_data.pop("cost_model_context", None)
         self._model = CostModel.objects.create(**cost_model_data)
-        self.update_provider_uuids(provider_uuids)
+        self.update_provider_uuids(provider_uuids, cost_model_context=cost_model_context)
 
         if self._model.rates:
             self._get_or_create_price_list()
 
         return self._model
 
+    @staticmethod
+    def _resolve_cost_model_context(cost_model_context):
+        """Resolve a cost model context, defaulting to the tenant's default if None."""
+        if cost_model_context is None:
+            cost_model_context = CostModelContext.objects.filter(is_default=True).first()
+        return cost_model_context
+
     @transaction.atomic
-    def update_provider_uuids(self, provider_uuids):
-        """Update rate with new provider uuids."""
+    def update_provider_uuids(self, provider_uuids, cost_model_context=None):
+        """Update rate with new provider uuids for a given context."""
+        cost_model_context = self._resolve_cost_model_context(cost_model_context)
+
         current_providers_for_instance = []
-        for rate_map_instance in CostModelMap.objects.filter(cost_model=self._model):
+        for rate_map_instance in CostModelMap.objects.filter(
+            cost_model=self._model, cost_model_context=cost_model_context
+        ):
             current_providers_for_instance.append(str(rate_map_instance.provider_uuid))
 
         providers_to_delete = set(current_providers_for_instance).difference(provider_uuids)
@@ -72,17 +85,27 @@ class CostModelManager:
         all_providers = set(current_providers_for_instance).union(provider_uuids)
 
         for provider_uuid in providers_to_delete:
-            CostModelMap.objects.filter(provider_uuid=provider_uuid, cost_model=self._model).delete()
+            CostModelMap.objects.filter(
+                provider_uuid=provider_uuid, cost_model=self._model, cost_model_context=cost_model_context
+            ).delete()
 
         for provider_uuid in providers_to_create:
-            # Raise exception if source is already associated with another cost model.
-            existing_cost_model = CostModelMap.objects.filter(provider_uuid=provider_uuid)
-            if existing_cost_model.exists():
-                cost_model_uuid = existing_cost_model.first().cost_model.uuid
-                log_msg = f"Source {provider_uuid} is already associated with cost model: {cost_model_uuid}."
+            existing = CostModelMap.objects.filter(
+                provider_uuid=provider_uuid, cost_model_context=cost_model_context
+            )
+            if existing.exists():
+                cost_model_uuid = existing.first().cost_model.uuid
+                log_msg = (
+                    f"Source {provider_uuid} is already associated with cost model "
+                    f"{cost_model_uuid} for context '{cost_model_context}'."
+                )
                 LOG.warning(log_msg)
                 raise CostModelException(log_msg)
-            CostModelMap.objects.create(cost_model=self._model, provider_uuid=provider_uuid)
+            CostModelMap.objects.create(
+                cost_model=self._model,
+                provider_uuid=provider_uuid,
+                cost_model_context=cost_model_context,
+            )
 
         start_date = DateHelper().this_month_start.strftime("%Y-%m-%d")
         end_date = DateHelper().today.strftime("%Y-%m-%d")

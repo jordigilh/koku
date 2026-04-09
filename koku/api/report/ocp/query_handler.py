@@ -16,6 +16,7 @@ from django.db.models import CharField
 from django.db.models import DecimalField
 from django.db.models import F
 from django.db.models import IntegerField
+from django.db.models import Q
 from django.db.models import Value
 from django.db.models import When
 from django.db.models.expressions import RawSQL
@@ -55,11 +56,15 @@ class OCPReportQueryHandler(ReportQueryHandler):
         mapper_class = OCPProviderMap
         self._limit = parameters.get_filter("limit")
         self._report_type = parameters.report_type
+        self._cost_model_context = parameters.cost_model_context
         # Update which field is used to calculate cost by group by param.
         if is_grouped_by_project(parameters) and parameters.report_type == "costs":
             self._report_type = parameters.report_type + "_by_project"
         self._mapper = mapper_class(
-            provider=self.provider, report_type=self._report_type, schema_name=parameters.tenant.schema_name
+            provider=self.provider,
+            report_type=self._report_type,
+            schema_name=parameters.tenant.schema_name,
+            cost_model_context=self._cost_model_context,
         )
         self.group_by_options = self._mapper.report_type_map.get("group_by_options") or self._mapper.provider_map.get(
             "group_by_options"
@@ -119,6 +124,9 @@ class OCPReportQueryHandler(ReportQueryHandler):
         # super() needs to be called after _mapper and _limit is set
         super().__init__(parameters)
         # super() needs to be called before _get_group_by is called
+
+        if self._cost_model_context:
+            self.query_filter &= Q(cost_model_context=self._cost_model_context)
 
         self._mapper.PACK_DEFINITIONS = ocp_pack_definitions
 
@@ -220,7 +228,10 @@ class OCPReportQueryHandler(ReportQueryHandler):
         source_map = defaultdict(lambda: self._mapper.cost_units_fallback)
         cost_models = CostModel.objects.all().values("uuid", "currency").distinct()
         cm_to_currency = {row["uuid"]: row["currency"] for row in cost_models}
-        mapping = CostModelMap.objects.all().values("provider_uuid", "cost_model_id")
+        mapping_qs = CostModelMap.objects.all()
+        if self._cost_model_context:
+            mapping_qs = mapping_qs.filter(cost_model_context__name=self._cost_model_context)
+        mapping = mapping_qs.values("provider_uuid", "cost_model_id")
         source_map |= {row["provider_uuid"]: cm_to_currency[row["cost_model_id"]] for row in mapping}
         return source_map
 
@@ -264,6 +275,10 @@ class OCPReportQueryHandler(ReportQueryHandler):
         """
 
         output = self._initialize_response_output(self.parameters)
+        if self._cost_model_context:
+            output["cost_model_context"] = self._cost_model_context
+        else:
+            output.pop("cost_model_context", None)
         if self._report_type == "costs_by_project":
             # Add a boolean flag for the overhead dropdown in the UI
             with tenant_context(self.tenant):

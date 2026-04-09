@@ -7,9 +7,11 @@ from django.conf.urls import include
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 
+from cost_models.views import CostModelContextViewSet
 from cost_models.views import CostModelViewSet
 
 ROUTER = DefaultRouter()
 ROUTER.register(r"cost-models", CostModelViewSet, basename="cost-models")
+ROUTER.register(r"cost-model-contexts", CostModelContextViewSet, basename="cost-model-contexts")
 
 urlpatterns = [path("", include(ROUTER.urls))]

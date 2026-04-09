@@ -2,6 +2,7 @@ DELETE FROM {{schema | sqlsafe}}.reporting_ocp_network_summary_by_node_p
 WHERE usage_start >= {{start_date}}::date
     AND usage_start <= {{end_date}}::date
     AND source_uuid = {{source_uuid}}
+    AND cost_model_context = {{cost_model_context}}
 ;
 
 -- One record for data in and another for data out to keep costs separate
@@ -24,6 +25,7 @@ INSERT INTO {{schema | sqlsafe}}.reporting_ocp_network_summary_by_node_p (
     cost_model_volume_cost,
     cost_model_gpu_cost,
     cost_model_rate_type,
+    cost_model_context,
     source_uuid,
     cost_category_id,
     raw_currency,
@@ -47,6 +49,7 @@ INSERT INTO {{schema | sqlsafe}}.reporting_ocp_network_summary_by_node_p (
         sum(cost_model_volume_cost) as cost_model_volume_cost,
         sum(cost_model_gpu_cost) as cost_model_gpu_cost,
         cost_model_rate_type,
+        {{cost_model_context}} AS cost_model_context,
         {{source_uuid}}::uuid as source_uuid,
         max(cost_category_id) as cost_category_id,
         max(raw_currency) as raw_currency,
@@ -55,6 +58,7 @@ INSERT INTO {{schema | sqlsafe}}.reporting_ocp_network_summary_by_node_p (
     WHERE usage_start >= {{start_date}}::date
         AND usage_start <= {{end_date}}::date
         AND source_uuid = {{source_uuid}}
+        AND cost_model_context = {{cost_model_context}}
         AND data_source = 'Pod'
         AND namespace = 'Network unattributed'
         AND infrastructure_data_in_gigabytes IS NOT NULL
@@ -81,6 +85,7 @@ INSERT INTO {{schema | sqlsafe}}.reporting_ocp_network_summary_by_node_p (
     cost_model_volume_cost,
     cost_model_gpu_cost,
     cost_model_rate_type,
+    cost_model_context,
     source_uuid,
     cost_category_id,
     raw_currency,
@@ -104,6 +109,7 @@ INSERT INTO {{schema | sqlsafe}}.reporting_ocp_network_summary_by_node_p (
         sum(cost_model_volume_cost) as cost_model_volume_cost,
         sum(cost_model_gpu_cost) as cost_model_gpu_cost,
         cost_model_rate_type,
+        {{cost_model_context}} AS cost_model_context,
         {{source_uuid}}::uuid as source_uuid,
         max(cost_category_id) as cost_category_id,
         max(raw_currency) as raw_currency,
@@ -112,6 +118,7 @@ INSERT INTO {{schema | sqlsafe}}.reporting_ocp_network_summary_by_node_p (
     WHERE usage_start >= {{start_date}}::date
         AND usage_start <= {{end_date}}::date
         AND source_uuid = {{source_uuid}}
+        AND cost_model_context = {{cost_model_context}}
         AND data_source = 'Pod'
         AND namespace = 'Network unattributed'
         AND infrastructure_data_out_gigabytes IS NOT NULL

@@ -22,6 +22,7 @@ ALLOWED_COMPRESSIONS = (UNCOMPRESSED, GZIP_COMPRESSED)
 GCP_UNATTRIBUTED_STORAGE_UNLEASH_FLAG = "cost-management.backend.unattributed_storage_gcp"
 OCP_GPU_COST_MODEL_UNLEASH_FLAG = "cost-management.backend.ocp_gpu_cost_model"
 TAG_QUERY_RATE_LIMIT_FLAG = "cost-management.backend.rate-limit-tag-queries"
+COST_MODEL_CONTEXT_WRITE_FREEZE_FLAG = "cost-management.backend.disable-cost-model-context-writes"
 
 
 def is_feature_flag_enabled_by_schema(schema, feature_flag, dev_fallback=False):  # pragma: no cover
@@ -153,3 +154,17 @@ def is_ingress_rbac_grace_period_enabled(schema):  # pragma: no cover
     context = {"schema": schema}
     enabled = UNLEASH_CLIENT.is_enabled("cost-management.backend.ingress-rbac-grace-period-enabled", context)
     return enabled
+
+
+def is_context_writes_disabled(schema):  # pragma: no cover
+    """Disable cost model context writes during migration.
+
+    When enabled, blocks CostModelContext create/update and pipeline
+    context-tagged writes. Reads remain open. Follows the same pattern
+    as PR #5983's disable-cost-model-writes flag.
+    """
+    context = {"schema": schema}
+    res = UNLEASH_CLIENT.is_enabled(COST_MODEL_CONTEXT_WRITE_FREEZE_FLAG, context)
+    if res:
+        LOG.info(log_json(msg="cost model context writes disabled for migration", context=context))
+    return res

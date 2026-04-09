@@ -127,6 +127,18 @@ class NotificationService:
     #     msg = self.build_notification_json(provider, event_type, host_url, description, cost_model)
     #     self.send_notification(msg)
 
+    def missing_context_assignment_notification(self, provider: Provider, context_name: str, schema_name: str):
+        """Send notification when a context has no cost model assigned."""
+        event_type = "missing-cost-model"
+        host_url = "https://console.redhat.com/openshift/cost-management/cost-models"
+        description = (
+            f"OpenShift source '{provider.name}' has context '{context_name}' "
+            f"with no cost model assigned in tenant '{schema_name}'. "
+            f"Assign a cost model to this context via the Cost Models page."
+        )
+        msg = self.build_notification_json(provider, event_type, host_url, description)
+        self.send_notification(msg)
+
     def ocp_stale_source_notification(self, provider: Provider):
         """Send notifications for stale openshift clusters via kafka"""
         event_type = "cm-operator-stale"

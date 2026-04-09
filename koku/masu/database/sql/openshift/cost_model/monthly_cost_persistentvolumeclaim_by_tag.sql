@@ -3,6 +3,7 @@ WHERE lids.usage_start >= {{start_date}}::date
     AND lids.usage_start <= {{end_date}}::date
     AND lids.report_period_id = {{report_period_id}}
     AND lids.cost_model_rate_type = {{rate_type}}
+    AND lids.cost_model_context = {{cost_model_context}}
     AND lids.monthly_cost_type = 'PVC'
     AND lids.volume_labels ? {{tag_key}}
 ;
@@ -48,6 +49,7 @@ INSERT INTO {{schema | sqlsafe}}.reporting_ocpusagelineitem_daily_summary (
     cost_model_cpu_cost,
     cost_model_memory_cost,
     cost_model_volume_cost,
+    cost_model_context,
     monthly_cost_type,
     cost_category_id
 )
@@ -103,6 +105,7 @@ cte_filtered_data AS (
         {{cost_model_cpu_cost | sqlsafe}},
         {{cost_model_memory_cost | sqlsafe}},
         {{cost_model_volume_cost | sqlsafe}},
+        {{cost_model_context}} AS cost_model_context,
         {{cost_type}} as monthly_cost_type,
         lids.cost_category_id
     FROM {{schema | sqlsafe}}.reporting_ocpusagelineitem_daily_summary AS lids
@@ -165,6 +168,7 @@ SELECT uuid,
     cost_model_cpu_cost,
     cost_model_memory_cost,
     cost_model_volume_cost,
+    {{cost_model_context}} as cost_model_context,
     monthly_cost_type,
     cost_category_id
 FROM cte_filtered_data

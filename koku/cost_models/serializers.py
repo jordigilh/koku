@@ -23,6 +23,8 @@ from api.utils import get_currency
 from cost_models.cost_model_manager import CostModelException
 from cost_models.cost_model_manager import CostModelManager
 from cost_models.models import CostModel
+from cost_models.models import CostModelContext
+from masu.processor import is_context_writes_disabled
 
 MARKUP_CHOICES = (("percent", "%"),)
 TAG_RATE_ONLY = (metric_constants.OCP_PROJECT_MONTH,)
@@ -438,6 +440,8 @@ class CostModelSerializer(BaseSerializer):
 
     currency = serializers.ChoiceField(choices=CURRENCY_CHOICES, required=False)
 
+    cost_model_context = serializers.UUIDField(required=False, allow_null=True)
+
     @property
     def customer(self):
         """Return the customer for the request."""
@@ -590,10 +594,18 @@ class CostModelSerializer(BaseSerializer):
             raise serializers.ValidationError(error_msg)
         return distribution
 
+    def _resolve_context_from_data(self, validated_data):
+        """Extract and resolve cost_model_context from validated data."""
+        ctx_uuid = validated_data.pop("cost_model_context", None)
+        if ctx_uuid:
+            return CostModelContext.objects.filter(uuid=ctx_uuid).first()
+        return None
+
     def create(self, validated_data):
         """Create the cost model object in the database."""
         source_uuids = validated_data.pop("source_uuids", [])
-        validated_data.update({"provider_uuids": source_uuids})
+        cost_model_context = self._resolve_context_from_data(validated_data)
+        validated_data.update({"provider_uuids": source_uuids, "cost_model_context": cost_model_context})
         try:
             return CostModelManager().create(**validated_data)
         except CostModelException as error:
@@ -602,12 +614,15 @@ class CostModelSerializer(BaseSerializer):
     def update(self, instance, validated_data, *args, **kwargs):
         """Update the rate object in the database."""
         source_uuids = validated_data.pop("source_uuids", [])
+        cost_model_context = self._resolve_context_from_data(validated_data)
         new_providers_for_instance = []
         for uuid in source_uuids:
             new_providers_for_instance.append(str(Provider.objects.filter(uuid=uuid).first().uuid))
         try:
             manager = CostModelManager(cost_model_uuid=instance.uuid)
-            manager.update_provider_uuids(new_providers_for_instance)
+            manager.update_provider_uuids(
+                new_providers_for_instance, cost_model_context=cost_model_context
+            )
             manager.update(**validated_data)
         except CostModelException as error:
             raise serializers.ValidationError(error_obj("cost-models", str(error)))
@@ -651,3 +666,55 @@ class CostModelSerializer(BaseSerializer):
         internal = super().to_internal_value(data)
         internal["provider_uuids"] = internal.get("source_uuids", [])
         return internal
+
+
+class CostModelContextSerializer(serializers.ModelSerializer):
+    """Serializer for CostModelContext CRUD with max-3 and default-delete validation."""
+
+    uuid = serializers.UUIDField(read_only=True)
+    created_timestamp = serializers.DateTimeField(read_only=True)
+    name = serializers.CharField(max_length=50)
+    display_name = serializers.CharField(max_length=100)
+    position = serializers.IntegerField(required=False)
+
+    class Meta:
+        model = CostModelContext
+        fields = ["uuid", "name", "display_name", "is_default", "position", "created_timestamp"]
+        read_only_fields = ["uuid", "created_timestamp"]
+
+    def _check_context_write_freeze(self):
+        """Raise ValidationError if context writes are frozen for migration."""
+        request = self.context.get("request")
+        if not request or not hasattr(request, "user"):
+            return
+        customer = getattr(request.user, "customer", None)
+        schema = customer.schema_name if customer else None
+        if schema and is_context_writes_disabled(schema):
+            raise serializers.ValidationError(
+                "Cost model context writes are temporarily frozen during data migration."
+            )
+
+    def validate(self, attrs):
+        """Enforce max-3 context limit per tenant."""
+        if self.instance and attrs.get("is_default") is False and self.instance.is_default:
+            raise serializers.ValidationError(
+                {
+                    "is_default": "Cannot unset the default context; set another context as default instead.",
+                }
+            )
+        if self.instance is None:
+            existing_count = CostModelContext.objects.count()
+            if existing_count >= 3:
+                raise serializers.ValidationError("A maximum of 3 cost model contexts are allowed per tenant.")
+            if "position" not in attrs:
+                max_pos = CostModelContext.objects.order_by("-position").values_list("position", flat=True).first()
+                attrs["position"] = (max_pos or 0) + 1
+        return attrs
+
+    def create(self, validated_data):
+        self._check_context_write_freeze()
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        self._check_context_write_freeze()
+        return super().update(instance, validated_data)

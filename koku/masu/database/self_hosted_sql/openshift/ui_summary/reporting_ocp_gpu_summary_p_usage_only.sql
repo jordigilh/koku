@@ -2,6 +2,7 @@ DELETE FROM {{schema | sqlsafe}}.reporting_ocp_gpu_summary_p
 WHERE usage_start >= {{start_date}}::date
     AND usage_start <= {{end_date}}::date
     AND source_uuid = {{source_uuid}}::uuid
+    AND cost_model_context = {{cost_model_context}}
 ;
 
 INSERT INTO {{schema | sqlsafe}}.reporting_ocp_gpu_summary_p (
@@ -23,7 +24,8 @@ INSERT INTO {{schema | sqlsafe}}.reporting_ocp_gpu_summary_p (
     mig_strategy,
     mig_memory_capacity_gb,
     source_uuid,
-    cost_category_id
+    cost_category_id,
+    cost_model_context
 )
 SELECT uuid_generate_v4(),
     {{cluster_id}} as cluster_id,
@@ -43,7 +45,8 @@ SELECT uuid_generate_v4(),
     max(gpu.mig_strategy) as mig_strategy,
     max(gpu.mig_memory_capacity_mib) * 0.001048576 as mig_memory_capacity_gb,
     {{source_uuid}}::uuid,
-    max(cat_ns.cost_category_id)
+    max(cat_ns.cost_category_id),
+    {{cost_model_context}} AS cost_model_context
 FROM {{schema | sqlsafe}}.openshift_gpu_usage_line_items AS gpu
 LEFT JOIN {{schema | sqlsafe}}.reporting_ocp_cost_category_namespace AS cat_ns
         ON gpu.namespace LIKE cat_ns.namespace
@@ -52,5 +55,5 @@ WHERE gpu.source = {{source_uuid}}
     AND lpad(gpu.month, 2, '0') = {{month}}
     AND gpu.usage_start >= date({{start_date}})
     AND gpu.usage_start <= date({{end_date}})
-GROUP BY gpu.namespace, gpu.node, gpu.gpu_vendor_name, gpu.gpu_model_name, gpu.mig_profile, gpu.usage_start
+GROUP BY gpu.namespace, gpu.node, gpu.gpu_vendor_name, gpu.gpu_model_name, gpu.mig_profile, gpu.usage_start, {{cost_model_context}}
 RETURNING 1;

@@ -5,6 +5,7 @@ WHERE lids.usage_start >= {{start_date}}
     AND lids.report_period_id = {{report_period_id}}
     AND lids.cost_model_rate_type = {{rate_type}}
     AND lids.monthly_cost_type IS NULL
+    AND lids.cost_model_context = {{cost_model_context}}
 ;
 
 INSERT INTO {{schema | sqlsafe}}.reporting_ocpusagelineitem_daily_summary (
@@ -34,6 +35,7 @@ INSERT INTO {{schema | sqlsafe}}.reporting_ocpusagelineitem_daily_summary (
     cost_model_cpu_cost,
     cost_model_memory_cost,
     cost_model_volume_cost,
+    cost_model_context,
     monthly_cost_type,
     cost_category_id,
     all_labels
@@ -129,6 +131,7 @@ SELECT uuid_generate_v4(),
     sum(coalesce(lids.persistentvolumeclaim_usage_gigabyte_months, 0)) * {{storage_gb_usage_per_month}}
         + sum(coalesce(lids.volume_request_storage_gigabyte_months, 0)) * {{storage_gb_request_per_month}}
         as cost_model_volume_cost,
+    {{cost_model_context}} as cost_model_context,
     NULL as monthly_cost_type,
     lids.cost_category_id,
     lids.all_labels

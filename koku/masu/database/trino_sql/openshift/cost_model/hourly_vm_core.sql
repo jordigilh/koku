@@ -14,6 +14,7 @@ INSERT INTO postgres.{{schema | sqlsafe}}.reporting_ocpusagelineitem_daily_summa
     source_uuid,
     cost_model_rate_type,
     cost_model_cpu_cost,
+    cost_model_context,
     cost_category_id
 )
 WITH
@@ -101,6 +102,7 @@ SELECT
     lids.source_uuid,
     {{rate_type}} AS cost_model_rate_type,
     max(vm_usage.vm_interval_hours) / 3600 * max(vm_usage.vm_cpu_cores) * CAST({{hourly_rate}} as DECIMAL(33, 15)) AS cost_model_cpu_cost,
+    {{cost_model_context}} AS cost_model_context,
     lids.cost_category_id
 FROM
     postgres.{{schema | sqlsafe}}.reporting_ocpusagelineitem_daily_summary AS lids

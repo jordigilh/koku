@@ -3,6 +3,7 @@ WHERE lids.usage_start >= {{start_date}}::date
     AND lids.usage_start <= {{end_date}}::date
     AND lids.report_period_id = {{report_period_id}}
     AND lids.cost_model_rate_type = {{rate_type}}
+    AND lids.cost_model_context = {{cost_model_context}}
     AND lids.monthly_cost_type = {{cost_type}}
     AND lids.pod_labels ? {{tag_key}}
 ;
@@ -45,6 +46,7 @@ CREATE TEMPORARY TABLE label_filtered_daily_summary AS (
     {{cost_model_cpu_cost | sqlsafe}},
     {{cost_model_memory_cost | sqlsafe}},
     {{cost_model_volume_cost | sqlsafe}},
+    {{cost_model_context}} as cost_model_context,
     {{cost_type}} as monthly_cost_type,
     lids.cost_category_id
 FROM {{schema | sqlsafe}}.reporting_ocpusagelineitem_daily_summary AS lids
@@ -107,6 +109,7 @@ INSERT INTO {{schema | sqlsafe}}.reporting_ocpusagelineitem_daily_summary (
     cost_model_cpu_cost,
     cost_model_memory_cost,
     cost_model_volume_cost,
+    cost_model_context,
     monthly_cost_type,
     cost_category_id
 )
@@ -148,6 +151,7 @@ SELECT uuid_generate_v4(),
     cost_model_cpu_cost,
     cost_model_memory_cost,
     cost_model_volume_cost,
+    {{cost_model_context}} as cost_model_context,
     monthly_cost_type,
     cost_category_id
 FROM label_filtered_daily_summary AS lids
@@ -195,6 +199,7 @@ INSERT INTO {{schema | sqlsafe}}.reporting_ocpusagelineitem_daily_summary (
     cost_model_cpu_cost,
     cost_model_memory_cost,
     cost_model_volume_cost,
+    cost_model_context,
     monthly_cost_type,
     cost_category_id
 )
@@ -241,6 +246,7 @@ WITH cte_unallocated AS (
         {{unallocated_cost_model_cpu_cost | sqlsafe}},
         {{unallocated_cost_model_memory_cost | sqlsafe}},
         {{unallocated_cost_model_volume_cost | sqlsafe}},
+        {{cost_model_context}} as cost_model_context,
         {{cost_type}} as monthly_cost_type
     FROM label_filtered_daily_summary AS lids
     LEFT JOIN {{schema | sqlsafe}}.reporting_ocp_nodes as nodes
@@ -287,6 +293,7 @@ SELECT uuid,
     cast(cost_model_cpu_cost as decimal),
     cast(cost_model_memory_cost as decimal),
     cast(cost_model_volume_cost as decimal),
+    {{cost_model_context}} as cost_model_context,
     monthly_cost_type,
     cat_ns.cost_category_id as cost_category_id
 FROM cte_unallocated AS uc

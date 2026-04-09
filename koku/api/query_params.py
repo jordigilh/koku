@@ -502,6 +502,17 @@ class QueryParameters:
         return self.get("cost_type", settings.KOKU_DEFAULT_COST_TYPE)
 
     @property
+    def cost_model_context(self):
+        """Get cost model context param.
+
+        Returns the explicit value only. When not provided, returns None
+        so queries return all data regardless of context (backward-compat).
+        The pipeline (cost calculation) handles default-context fallback
+        separately in tasks.py.
+        """
+        return self.get("cost_model_context") or None
+
+    @property
     def delta(self):
         """Return delta property."""
         return self.get("delta")

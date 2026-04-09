@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from django.contrib.postgres.fields import ArrayField
 from django.core.serializers.json import DjangoJSONEncoder
+from django.core.validators import MinValueValidator
 from django.db import models
 from django.db.models import JSONField
 
@@ -90,6 +91,47 @@ class CostModelAudit(models.Model):
 
     currency = models.TextField(default=KOKU_DEFAULT_CURRENCY)
 
+    cost_model_context = models.CharField(max_length=50, null=True)
+
+
+class CostModelContextQuerySet(models.QuerySet):
+    """QuerySet that prevents bulk-deletion of default contexts."""
+
+    def delete(self):
+        """Bulk-delete contexts; raises if any row is the default context."""
+        if self.filter(is_default=True).exists():
+            from django.core.exceptions import ValidationError
+
+            raise ValidationError("Cannot delete the default cost model context.")
+        return super().delete()
+
+
+class CostModelContext(models.Model):
+    """A named context for cost model assignment (e.g., Consumer, Provider)."""
+
+    objects = CostModelContextQuerySet.as_manager()
+
+    class Meta:
+        db_table = "cost_model_context"
+        ordering = ["position"]
+
+    uuid = models.UUIDField(primary_key=True, default=uuid4)
+    name = models.CharField(max_length=50)
+    display_name = models.CharField(max_length=100)
+    is_default = models.BooleanField(default=False)
+    position = models.PositiveSmallIntegerField(validators=[MinValueValidator(1)])
+    created_timestamp = models.DateTimeField(auto_now_add=True)
+
+    def delete(self, *args, **kwargs):
+        if self.is_default:
+            from django.core.exceptions import ValidationError
+
+            raise ValidationError("Cannot delete the default cost model context.")
+        return super().delete(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.display_name} ({self.name})"
+
 
 class CostModelMap(models.Model):
     """Map for provider and rate objects."""
@@ -98,11 +140,19 @@ class CostModelMap(models.Model):
 
     cost_model = models.ForeignKey("CostModel", null=True, blank=True, on_delete=models.CASCADE)
 
+    cost_model_context = models.ForeignKey(
+        "CostModelContext",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        db_column="cost_model_context",
+    )
+
     class Meta:
         """Meta for CostModelMap."""
 
         ordering = ["-id"]
-        unique_together = ("provider_uuid", "cost_model")
+        unique_together = ("provider_uuid", "cost_model_context")
         db_table = "cost_model_map"
 
 

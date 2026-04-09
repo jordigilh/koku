@@ -96,13 +96,16 @@ class OCPReportDBAccessor(SQLScriptAtomicExecutorMixin, ReportDBAccessorBase):
         """Get the report periods with report period before provided date."""
         return OCPUsageReportPeriod.objects.filter(report_period_start__lte=date)
 
-    def populate_ui_summary_tables(self, summary_range: SummaryRangeConfig, source_uuid, tables=UI_SUMMARY_TABLES):
+    def populate_ui_summary_tables(
+        self, summary_range: SummaryRangeConfig, source_uuid, tables=UI_SUMMARY_TABLES, cost_model_context=None
+    ):
         """Populate our UI summary tables (formerly materialized views)."""
         sql_params = {
             "start_date": summary_range.start_date,
             "end_date": summary_range.end_date,
             "schema": self.schema,
             "source_uuid": source_uuid,
+            "cost_model_context": cost_model_context,
         }
         for table_name in tables:
             sql = pkgutil.get_data("masu.database", f"sql/openshift/ui_summary/{table_name}.sql")
@@ -590,7 +593,11 @@ AND (month = replace(ltrim(replace('{month}', '0', ' ')),' ', '0') OR month = '{
         )
 
     def populate_distributed_cost_sql(  # noqa: C901
-        self, summary_range: SummaryRangeConfig, provider_uuid: uuid.UUID, distribution_info: dict
+        self,
+        summary_range: SummaryRangeConfig,
+        provider_uuid: uuid.UUID,
+        distribution_info: dict,
+        cost_model_context=None,
     ) -> SummaryRangeConfig:
         """
         Populate the distribution cost model options.
@@ -639,6 +646,7 @@ AND (month = replace(ltrim(replace('{month}', '0', ' ')),' ', '0') OR month = '{
                 "schema": self.schema,
                 "source_uuid": provider_uuid,
                 "cost_model_rate_type": config.cost_model_rate_type,
+                "cost_model_context": cost_model_context,
             }
             # Handle distributions that require full month data
             if config.requires_full_month:
@@ -725,7 +733,9 @@ AND (month = replace(ltrim(replace('{month}', '0', ' ')),' ', '0') OR month = '{
             self._table_map["line_item_daily_summary"], delete_sql, sql_params, operation="DELETE"
         )
 
-    def populate_monthly_cost_sql(self, cost_type, rate_type, rate, start_date, end_date, distribution, provider_uuid):
+    def populate_monthly_cost_sql(
+        self, cost_type, rate_type, rate, start_date, end_date, distribution, provider_uuid, cost_model_context=None
+    ):
         """
         Populate the monthly cost of a customer.
 
@@ -782,6 +792,7 @@ AND (month = replace(ltrim(replace('{month}', '0', ' ')),' ', '0') OR month = '{
                 "start_date": start_date,
                 "end_date": end_date,
                 "cost_type": cost_type,
+                "cost_model_context": cost_model_context,
             },
             ctx,
         )
@@ -800,6 +811,7 @@ AND (month = replace(ltrim(replace('{month}', '0', ' ')),' ', '0') OR month = '{
             "cost_type": cost_type,
             "rate_type": rate_type,
             "distribution": distribution,
+            "cost_model_context": cost_model_context,
         }
         insert_sql = pkgutil.get_data("masu.database", cost_type_file)
         insert_sql = insert_sql.decode("utf-8")
@@ -813,7 +825,16 @@ AND (month = replace(ltrim(replace('{month}', '0', ' ')),' ', '0') OR month = '{
             self._prepare_and_execute_raw_sql_query(table_name, insert_sql, sql_params, operation="INSERT")
 
     def populate_tag_cost_sql(
-        self, cost_type, rate_type, tag_key, case_dict, start_date, end_date, distribution, provider_uuid
+        self,
+        cost_type,
+        rate_type,
+        tag_key,
+        case_dict,
+        start_date,
+        end_date,
+        distribution,
+        provider_uuid,
+        cost_model_context=None,
     ):
         """
         Update or insert daily summary line item for node cost.
@@ -865,6 +886,7 @@ AND (month = replace(ltrim(replace('{month}', '0', ' ')),' ', '0') OR month = '{
             "distribution": distribution,
             "tag_key": tag_key,
             "labels": labels,
+            "cost_model_context": cost_model_context,
         }
 
         if case_dict.get("unallocated"):
@@ -877,7 +899,7 @@ AND (month = replace(ltrim(replace('{month}', '0', ' ')),' ', '0') OR month = '{
         self._prepare_and_execute_raw_sql_query(table_name, sql, sql_params, operation="INSERT")
 
     def populate_vm_usage_costs(
-        self, rate_type, vm_usage_rates, start_date, end_date, provider_uuid, report_period_id
+        self, rate_type, vm_usage_rates, start_date, end_date, provider_uuid, report_period_id, cost_model_context=None
     ):
         if not vm_usage_rates:
             return
@@ -904,7 +926,11 @@ AND (month = replace(ltrim(replace('{month}', '0', ' ')),' ', '0') OR month = '{
                 source_uuid=provider_uuid,
                 report_period_id=report_period_id,
             )
-            context_params = {"rate_type": rate_type, "hourly_rate": hourly_rate}
+            context_params = {
+                "rate_type": rate_type,
+                "hourly_rate": hourly_rate,
+                "cost_model_context": cost_model_context,
+            }
             if metric_params := metadata.get("metric_params"):
                 context_params.update(metric_params)
             sql_params = param_builder.build_parameters(context_params=context_params)
@@ -913,7 +939,15 @@ AND (month = replace(ltrim(replace('{month}', '0', ' ')),' ', '0') OR month = '{
             self._execute_trino_multipart_sql_query(sql, bind_params=sql_params)
 
     def populate_usage_costs(
-        self, rate_type, rates, distribution, start_date, end_date, provider_uuid, report_period_id
+        self,
+        rate_type,
+        rates,
+        distribution,
+        start_date,
+        end_date,
+        provider_uuid,
+        report_period_id,
+        cost_model_context=None,
     ):
         """Update the reporting_ocpusagelineitem_daily_summary table with usage costs."""
         table_name = self._table_map["line_item_daily_summary"]
@@ -927,15 +961,17 @@ AND (month = replace(ltrim(replace('{month}', '0', ' ')),' ', '0') OR month = '{
         }
         if not rates:
             LOG.info(log_json(msg="removing usage costs", context=ctx))
+            filters = {"cost_model_rate_type": rate_type, "report_period_id": report_period_id}
+            if cost_model_context is not None:
+                filters["cost_model_context"] = cost_model_context
             self.delete_line_item_daily_summary_entries_for_date_range_raw(
                 provider_uuid,
                 start_date,
                 end_date,
                 table=OCPUsageLineItemDailySummary,
-                filters={"cost_model_rate_type": rate_type, "report_period_id": report_period_id},
+                filters=filters,
                 null_filters={"monthly_cost_type": "IS NULL"},
             )
-            # We cleared out existing data, but there is no new to calculate.
             return
 
         sql = pkgutil.get_data("masu.database", "sql/openshift/cost_model/usage_costs.sql")
@@ -949,6 +985,7 @@ AND (month = replace(ltrim(replace('{month}', '0', ' ')),' ', '0') OR month = '{
             "report_period_id": report_period_id,
             "rate_type": rate_type,
             "distribution": distribution,
+            "cost_model_context": cost_model_context,
         }
         for metric in metric_constants.COST_MODEL_USAGE_RATES:
             sql_params[metric] = rates.get(metric, 0)
@@ -957,7 +994,7 @@ AND (month = replace(ltrim(replace('{month}', '0', ' ')),' ', '0') OR month = '{
         self._prepare_and_execute_raw_sql_query(table_name, sql, sql_params, operation="INSERT")
 
     def populate_tag_usage_costs(  # noqa: C901
-        self, infrastructure_rates, supplementary_rates, start_date, end_date, cluster_id
+        self, infrastructure_rates, supplementary_rates, start_date, end_date, cluster_id, cost_model_context=None
     ):
         """
         Update the reporting_ocpusagelineitem_daily_summary table with
@@ -1016,13 +1053,14 @@ AND (month = replace(ltrim(replace('{month}', '0', ' ')),' ', '0') OR month = '{
                             "metric": metric,
                             "k_v_pair": key_value_pair,
                             "labels_field": labels_field,
+                            "cost_model_context": cost_model_context,
                         }
                         ctx = self.extract_context_from_sql_params(sql_params)
                         LOG.info(log_json(msg="running populate_tag_usage_costs SQL", context=ctx))
                         self._prepare_and_execute_raw_sql_query(table_name, sql, sql_params)
 
     def populate_tag_usage_default_costs(  # noqa: C901
-        self, infrastructure_rates, supplementary_rates, start_date, end_date, cluster_id
+        self, infrastructure_rates, supplementary_rates, start_date, end_date, cluster_id, cost_model_context=None
     ):
         """
         Update the reporting_ocpusagelineitem_daily_summary table
@@ -1091,6 +1129,7 @@ AND (month = replace(ltrim(replace('{month}', '0', ' ')),' ', '0') OR month = '{
                         "tag_key": tag_key,
                         "k_v_pair": key_value_pair,
                         "labels_field": labels_field,
+                        "cost_model_context": cost_model_context,
                     }
                     ctx = self.extract_context_from_sql_params(sql_params)
                     LOG.info(log_json(msg="running populate_tag_usage_default_costs SQL", context=ctx))
@@ -1430,7 +1469,13 @@ AND (month = replace(ltrim(replace('{month}', '0', ' ')),' ', '0') OR month = '{
         return minim, maxim
 
     def populate_tag_based_costs(  # noqa: C901
-        self, start_date, end_date, provider_uuid, metric_to_tag_params_map, cluster_params
+        self,
+        start_date,
+        end_date,
+        provider_uuid,
+        metric_to_tag_params_map,
+        cluster_params,
+        cost_model_context=None,
     ):
         """Populate the tag based costs.
 
@@ -1510,6 +1555,7 @@ AND (month = replace(ltrim(replace('{month}', '0', ' ')),' ', '0') OR month = '{
                 else:
                     context_params = tag_params.copy()
                 final_sql_params = param_builder.build_parameters(context_params=context_params)
+                final_sql_params["cost_model_context"] = cost_model_context
                 sql = pkgutil.get_data("masu.database", metadata["file_path"]).decode("utf-8")
                 LOG.info(log_json(msg=metadata["log_msg"], context=context_params))
                 if self.get_sql_folder_name() in metadata["file_path"]:
