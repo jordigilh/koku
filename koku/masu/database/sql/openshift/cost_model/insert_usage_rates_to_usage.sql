@@ -132,6 +132,15 @@ base AS (
         lids.volume_labels,
         lids.all_labels,
         lids.cost_category_id
+),
+
+rate_names AS (
+    SELECT r.uuid AS rate_uuid, r.custom_name, r.metric
+    FROM {{schema | sqlsafe}}.cost_model_rate r
+    JOIN {{schema | sqlsafe}}.cost_model_price_list pl ON r.price_list_id = pl.uuid
+    JOIN {{schema | sqlsafe}}.cost_model_price_list_cost_model_map pcm ON pcm.price_list_id = pl.uuid
+    WHERE pcm.cost_model_id = {{cost_model_id}}
+      AND r.cost_type = {{rate_type}}
 )
 
 INSERT INTO {{schema | sqlsafe}}.rates_to_usage (
@@ -139,16 +148,17 @@ INSERT INTO {{schema | sqlsafe}}.rates_to_usage (
     usage_start, usage_end, node, namespace, cluster_id, cluster_alias,
     data_source, persistentvolumeclaim, pod_labels, volume_labels, all_labels,
     label_hash, custom_name, metric_type, cost_model_rate_type,
-    monthly_cost_type, calculated_cost, cost_category_id
+    monthly_cost_type, calculated_cost, cost_category_id, rate_id
 )
 
 -- Component 1: cpu_core_usage_per_hour
 SELECT uuid_generate_v4(), {{cost_model_id}}, {{report_period_id}}, {{source_uuid}},
     b.usage_start, b.usage_start, b.node, b.namespace, b.cluster_id, b.cluster_alias,
     b.data_source, b.persistentvolumeclaim, b.pod_labels, b.volume_labels, b.all_labels, b.label_hash,
-    'cpu_core_usage_per_hour', 'cpu', {{rate_type}},
-    NULL, b.cpu_usage_hours * {{cpu_core_usage_per_hour}}, b.cost_category_id
-FROM base b WHERE {{cpu_core_usage_per_hour}} != 0
+    COALESCE(rn.custom_name, 'cpu_core_usage_per_hour'), 'cpu', {{rate_type}},
+    NULL, b.cpu_usage_hours * {{cpu_core_usage_per_hour}}, b.cost_category_id, rn.rate_uuid
+FROM base b LEFT JOIN rate_names rn ON rn.metric = 'cpu_core_usage_per_hour'
+WHERE {{cpu_core_usage_per_hour}} != 0
 
 UNION ALL
 
@@ -156,9 +166,10 @@ UNION ALL
 SELECT uuid_generate_v4(), {{cost_model_id}}, {{report_period_id}}, {{source_uuid}},
     b.usage_start, b.usage_start, b.node, b.namespace, b.cluster_id, b.cluster_alias,
     b.data_source, b.persistentvolumeclaim, b.pod_labels, b.volume_labels, b.all_labels, b.label_hash,
-    'cpu_core_request_per_hour', 'cpu', {{rate_type}},
-    NULL, b.cpu_request_hours * {{cpu_core_request_per_hour}}, b.cost_category_id
-FROM base b WHERE {{cpu_core_request_per_hour}} != 0
+    COALESCE(rn.custom_name, 'cpu_core_request_per_hour'), 'cpu', {{rate_type}},
+    NULL, b.cpu_request_hours * {{cpu_core_request_per_hour}}, b.cost_category_id, rn.rate_uuid
+FROM base b LEFT JOIN rate_names rn ON rn.metric = 'cpu_core_request_per_hour'
+WHERE {{cpu_core_request_per_hour}} != 0
 
 UNION ALL
 
@@ -166,9 +177,10 @@ UNION ALL
 SELECT uuid_generate_v4(), {{cost_model_id}}, {{report_period_id}}, {{source_uuid}},
     b.usage_start, b.usage_start, b.node, b.namespace, b.cluster_id, b.cluster_alias,
     b.data_source, b.persistentvolumeclaim, b.pod_labels, b.volume_labels, b.all_labels, b.label_hash,
-    'cpu_core_effective_usage_per_hour', 'cpu', {{rate_type}},
-    NULL, b.cpu_effective_hours * {{cpu_core_effective_usage_per_hour}}, b.cost_category_id
-FROM base b WHERE {{cpu_core_effective_usage_per_hour}} != 0
+    COALESCE(rn.custom_name, 'cpu_core_effective_usage_per_hour'), 'cpu', {{rate_type}},
+    NULL, b.cpu_effective_hours * {{cpu_core_effective_usage_per_hour}}, b.cost_category_id, rn.rate_uuid
+FROM base b LEFT JOIN rate_names rn ON rn.metric = 'cpu_core_effective_usage_per_hour'
+WHERE {{cpu_core_effective_usage_per_hour}} != 0
 
 UNION ALL
 
@@ -176,9 +188,10 @@ UNION ALL
 SELECT uuid_generate_v4(), {{cost_model_id}}, {{report_period_id}}, {{source_uuid}},
     b.usage_start, b.usage_start, b.node, b.namespace, b.cluster_id, b.cluster_alias,
     b.data_source, b.persistentvolumeclaim, b.pod_labels, b.volume_labels, b.all_labels, b.label_hash,
-    'node_core_cost_per_hour', 'cpu', {{rate_type}},
-    NULL, b.node_alloc_basis * {{node_core_cost_per_hour}}, b.cost_category_id
-FROM base b WHERE {{node_core_cost_per_hour}} != 0
+    COALESCE(rn.custom_name, 'node_core_cost_per_hour'), 'cpu', {{rate_type}},
+    NULL, b.node_alloc_basis * {{node_core_cost_per_hour}}, b.cost_category_id, rn.rate_uuid
+FROM base b LEFT JOIN rate_names rn ON rn.metric = 'node_core_cost_per_hour'
+WHERE {{node_core_cost_per_hour}} != 0
 
 UNION ALL
 
@@ -186,9 +199,10 @@ UNION ALL
 SELECT uuid_generate_v4(), {{cost_model_id}}, {{report_period_id}}, {{source_uuid}},
     b.usage_start, b.usage_start, b.node, b.namespace, b.cluster_id, b.cluster_alias,
     b.data_source, b.persistentvolumeclaim, b.pod_labels, b.volume_labels, b.all_labels, b.label_hash,
-    'cluster_core_cost_per_hour', 'cpu', {{rate_type}},
-    NULL, b.cluster_alloc_basis * {{cluster_core_cost_per_hour}}, b.cost_category_id
-FROM base b WHERE {{cluster_core_cost_per_hour}} != 0
+    COALESCE(rn.custom_name, 'cluster_core_cost_per_hour'), 'cpu', {{rate_type}},
+    NULL, b.cluster_alloc_basis * {{cluster_core_cost_per_hour}}, b.cost_category_id, rn.rate_uuid
+FROM base b LEFT JOIN rate_names rn ON rn.metric = 'cluster_core_cost_per_hour'
+WHERE {{cluster_core_cost_per_hour}} != 0
 
 UNION ALL
 
@@ -197,7 +211,7 @@ UNION ALL
 SELECT uuid_generate_v4(), {{cost_model_id}}, {{report_period_id}}, {{source_uuid}},
     b.usage_start, b.usage_start, b.node, b.namespace, b.cluster_id, b.cluster_alias,
     b.data_source, b.persistentvolumeclaim, b.pod_labels, b.volume_labels, b.all_labels, b.label_hash,
-    'cluster_cost_per_hour',
+    COALESCE(rn.custom_name, 'cluster_cost_per_hour'),
     {%- if distribution == 'cpu' %}
     'cpu',
     {%- else %}
@@ -210,8 +224,9 @@ SELECT uuid_generate_v4(), {{cost_model_id}}, {{report_period_id}}, {{source_uui
     {%- else %}
     b.cluster_hourly_mem_cost,
     {%- endif %}
-    b.cost_category_id
-FROM base b WHERE {{cluster_cost_per_hour}} != 0
+    b.cost_category_id, rn.rate_uuid
+FROM base b LEFT JOIN rate_names rn ON rn.metric = 'cluster_cost_per_hour'
+WHERE {{cluster_cost_per_hour}} != 0
 
 UNION ALL
 
@@ -219,9 +234,10 @@ UNION ALL
 SELECT uuid_generate_v4(), {{cost_model_id}}, {{report_period_id}}, {{source_uuid}},
     b.usage_start, b.usage_start, b.node, b.namespace, b.cluster_id, b.cluster_alias,
     b.data_source, b.persistentvolumeclaim, b.pod_labels, b.volume_labels, b.all_labels, b.label_hash,
-    'memory_gb_usage_per_hour', 'memory', {{rate_type}},
-    NULL, b.mem_usage_hours * {{memory_gb_usage_per_hour}}, b.cost_category_id
-FROM base b WHERE {{memory_gb_usage_per_hour}} != 0
+    COALESCE(rn.custom_name, 'memory_gb_usage_per_hour'), 'memory', {{rate_type}},
+    NULL, b.mem_usage_hours * {{memory_gb_usage_per_hour}}, b.cost_category_id, rn.rate_uuid
+FROM base b LEFT JOIN rate_names rn ON rn.metric = 'memory_gb_usage_per_hour'
+WHERE {{memory_gb_usage_per_hour}} != 0
 
 UNION ALL
 
@@ -229,9 +245,10 @@ UNION ALL
 SELECT uuid_generate_v4(), {{cost_model_id}}, {{report_period_id}}, {{source_uuid}},
     b.usage_start, b.usage_start, b.node, b.namespace, b.cluster_id, b.cluster_alias,
     b.data_source, b.persistentvolumeclaim, b.pod_labels, b.volume_labels, b.all_labels, b.label_hash,
-    'memory_gb_request_per_hour', 'memory', {{rate_type}},
-    NULL, b.mem_request_hours * {{memory_gb_request_per_hour}}, b.cost_category_id
-FROM base b WHERE {{memory_gb_request_per_hour}} != 0
+    COALESCE(rn.custom_name, 'memory_gb_request_per_hour'), 'memory', {{rate_type}},
+    NULL, b.mem_request_hours * {{memory_gb_request_per_hour}}, b.cost_category_id, rn.rate_uuid
+FROM base b LEFT JOIN rate_names rn ON rn.metric = 'memory_gb_request_per_hour'
+WHERE {{memory_gb_request_per_hour}} != 0
 
 UNION ALL
 
@@ -239,9 +256,10 @@ UNION ALL
 SELECT uuid_generate_v4(), {{cost_model_id}}, {{report_period_id}}, {{source_uuid}},
     b.usage_start, b.usage_start, b.node, b.namespace, b.cluster_id, b.cluster_alias,
     b.data_source, b.persistentvolumeclaim, b.pod_labels, b.volume_labels, b.all_labels, b.label_hash,
-    'memory_gb_effective_usage_per_hour', 'memory', {{rate_type}},
-    NULL, b.mem_effective_hours * {{memory_gb_effective_usage_per_hour}}, b.cost_category_id
-FROM base b WHERE {{memory_gb_effective_usage_per_hour}} != 0
+    COALESCE(rn.custom_name, 'memory_gb_effective_usage_per_hour'), 'memory', {{rate_type}},
+    NULL, b.mem_effective_hours * {{memory_gb_effective_usage_per_hour}}, b.cost_category_id, rn.rate_uuid
+FROM base b LEFT JOIN rate_names rn ON rn.metric = 'memory_gb_effective_usage_per_hour'
+WHERE {{memory_gb_effective_usage_per_hour}} != 0
 
 UNION ALL
 
@@ -249,9 +267,10 @@ UNION ALL
 SELECT uuid_generate_v4(), {{cost_model_id}}, {{report_period_id}}, {{source_uuid}},
     b.usage_start, b.usage_start, b.node, b.namespace, b.cluster_id, b.cluster_alias,
     b.data_source, b.persistentvolumeclaim, b.pod_labels, b.volume_labels, b.all_labels, b.label_hash,
-    'storage_gb_usage_per_month', 'storage', {{rate_type}},
-    NULL, b.storage_usage_months * {{storage_gb_usage_per_month}}, b.cost_category_id
-FROM base b WHERE {{storage_gb_usage_per_month}} != 0
+    COALESCE(rn.custom_name, 'storage_gb_usage_per_month'), 'storage', {{rate_type}},
+    NULL, b.storage_usage_months * {{storage_gb_usage_per_month}}, b.cost_category_id, rn.rate_uuid
+FROM base b LEFT JOIN rate_names rn ON rn.metric = 'storage_gb_usage_per_month'
+WHERE {{storage_gb_usage_per_month}} != 0
 
 UNION ALL
 
@@ -259,7 +278,8 @@ UNION ALL
 SELECT uuid_generate_v4(), {{cost_model_id}}, {{report_period_id}}, {{source_uuid}},
     b.usage_start, b.usage_start, b.node, b.namespace, b.cluster_id, b.cluster_alias,
     b.data_source, b.persistentvolumeclaim, b.pod_labels, b.volume_labels, b.all_labels, b.label_hash,
-    'storage_gb_request_per_month', 'storage', {{rate_type}},
-    NULL, b.storage_request_months * {{storage_gb_request_per_month}}, b.cost_category_id
-FROM base b WHERE {{storage_gb_request_per_month}} != 0
+    COALESCE(rn.custom_name, 'storage_gb_request_per_month'), 'storage', {{rate_type}},
+    NULL, b.storage_request_months * {{storage_gb_request_per_month}}, b.cost_category_id, rn.rate_uuid
+FROM base b LEFT JOIN rate_names rn ON rn.metric = 'storage_gb_request_per_month'
+WHERE {{storage_gb_request_per_month}} != 0
 ;

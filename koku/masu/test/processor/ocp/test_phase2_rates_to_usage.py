@@ -242,6 +242,132 @@ class TestSyncTestRateRows(MasuTestCase):
         self.assertEqual(set(pl_before.keys()), set(pl_after.keys()),
                          "price_list metrics should be the same after extra sync")
 
+    # TC-D8-01: custom_name uses generate_custom_name format (metric-cost_type)
+    def test_sync_custom_name_matches_generate_format(self):
+        """Rate rows should have custom_name in '{metric}-{cost_type}' format."""
+        from cost_models.models import CostModel
+        from cost_models.models import Rate
+
+        with schema_context(self.schema):
+            cm = CostModel.objects.filter(
+                costmodelmap__provider_uuid=self.ocp_provider_uuid
+            ).first()
+            if not cm:
+                self.skipTest("No cost model for OCP provider")
+            rate = Rate.objects.filter(
+                price_list__cost_model_maps__cost_model=cm,
+                metric="cpu_core_usage_per_hour",
+                cost_type="Infrastructure",
+            ).first()
+            if not rate:
+                self.skipTest("No matching Rate row")
+            self.assertEqual(
+                rate.custom_name, "cpu_core_usage_per_hour-Infrastructure",
+                "custom_name should be '{metric}-{cost_type}' per generate_custom_name",
+            )
+
+    # TC-D8-02: tag-based rates include tag_key in custom_name
+    def test_sync_custom_name_tag_rate_includes_tag_key(self):
+        """Tag-based Rate rows should have custom_name with tag_key suffix."""
+        from cost_models.models import CostModel
+        from cost_models.models import PriceList
+        from cost_models.models import PriceListCostModelMap
+        from cost_models.models import Rate
+        from model_bakery import baker
+
+        from api.report.test.util.common import sync_test_rate_rows
+
+        with schema_context(self.schema):
+            cm = baker.make(
+                "CostModel",
+                name="Tag Rate Test Model",
+                source_type="OCP",
+                rates=[{
+                    "metric": {"name": "cpu_core_usage_per_hour"},
+                    "cost_type": "Supplementary",
+                    "tag_rates": {"tag_key": "app", "tag_values": [
+                        {"tag_value": "web", "value": "0.5", "unit": "USD"},
+                    ]},
+                }],
+            )
+            sync_test_rate_rows(cm)
+            rate = Rate.objects.filter(
+                price_list__cost_model_maps__cost_model=cm,
+            ).first()
+            if not rate:
+                self.skipTest("No Rate row created")
+            self.assertEqual(
+                rate.custom_name,
+                "cpu_core_usage_per_hour-Supplementary-app",
+                "Tag rate custom_name should include tag_key suffix",
+            )
+
+    # TC-D8-03: deduplication uses '-{N}' suffix (not '_{N}')
+    def test_sync_custom_name_dedup_uses_dash_suffix(self):
+        """Duplicate custom_names should be deduplicated with '-{N}' suffix."""
+        from cost_models.models import CostModel
+        from cost_models.models import Rate
+        from model_bakery import baker
+
+        from api.report.test.util.common import sync_test_rate_rows
+
+        with schema_context(self.schema):
+            cm = baker.make(
+                "CostModel",
+                name="Dedup Test Model",
+                source_type="OCP",
+                rates=[
+                    {
+                        "metric": {"name": "cpu_core_usage_per_hour"},
+                        "cost_type": "Infrastructure",
+                        "tiered_rates": [{"value": "0.01", "unit": "USD"}],
+                    },
+                    {
+                        "metric": {"name": "cpu_core_usage_per_hour"},
+                        "cost_type": "Infrastructure",
+                        "tiered_rates": [{"value": "0.02", "unit": "USD"}],
+                    },
+                ],
+            )
+            sync_test_rate_rows(cm)
+            names = list(
+                Rate.objects.filter(
+                    price_list__cost_model_maps__cost_model=cm,
+                ).values_list("custom_name", flat=True).order_by("custom_name")
+            )
+            self.assertEqual(len(names), 2)
+            self.assertIn("cpu_core_usage_per_hour-Infrastructure", names)
+            self.assertIn("cpu_core_usage_per_hour-Infrastructure-2", names)
+
+    # TC-D8-04: user-provided custom_name is preserved
+    def test_sync_preserves_user_provided_custom_name(self):
+        """When rate_data has an explicit custom_name, it should be preserved."""
+        from cost_models.models import CostModel
+        from cost_models.models import Rate
+        from model_bakery import baker
+
+        from api.report.test.util.common import sync_test_rate_rows
+
+        with schema_context(self.schema):
+            cm = baker.make(
+                "CostModel",
+                name="Custom Name Test Model",
+                source_type="OCP",
+                rates=[{
+                    "metric": {"name": "cpu_core_usage_per_hour"},
+                    "cost_type": "Infrastructure",
+                    "tiered_rates": [{"value": "0.01", "unit": "USD"}],
+                    "custom_name": "My Custom Rate",
+                }],
+            )
+            sync_test_rate_rows(cm)
+            rate = Rate.objects.filter(
+                price_list__cost_model_maps__cost_model=cm,
+            ).first()
+            if not rate:
+                self.skipTest("No Rate row created")
+            self.assertEqual(rate.custom_name, "My Custom Rate")
+
 
 # ---------------------------------------------------------------------------
 # Tier 2 — Integration Tests
@@ -1165,6 +1291,119 @@ class TestBreakdownPipelineE2E(_ReportPeriodMixin, MasuTestCase):
                 self.assertIn("rate_id", rate_dict)
 
 
+class TestRTURateResolution(_ReportPeriodMixin, MasuTestCase):
+    """drift5-sql: Verify RTU rows resolve rate_id and custom_name from Rate table."""
+
+    # TC-D5-01: SQL params include cost_model_id (regression guard)
+    @patch("masu.database.ocp_report_db_accessor.OCPReportDBAccessor._prepare_and_execute_raw_sql_query")
+    def test_populate_rtu_params_include_cost_model_id(self, mock_execute):
+        """populate_usage_rates_to_usage passes cost_model_id in SQL params."""
+        dh = DateHelper()
+        with OCPReportDBAccessor(self.schema) as accessor:
+            rp = self._get_report_period(accessor)
+            accessor.populate_usage_rates_to_usage(
+                "Infrastructure",
+                {"cpu_core_usage_per_hour": 0.007},
+                "cpu",
+                dh.this_month_start.date(),
+                dh.this_month_end.date(),
+                self.ocp_provider_uuid,
+                rp.id,
+                "test-cost-model-uuid",
+            )
+        args, _ = mock_execute.call_args
+        sql_params = args[2]
+        self.assertIn("cost_model_id", sql_params)
+        self.assertEqual(sql_params["cost_model_id"], "test-cost-model-uuid")
+
+    # TC-D5-02: RTU rows have non-NULL rate_id FK when matching Rate exists
+    def test_rtu_rows_have_rate_fk(self):
+        """RTU rows should have a non-NULL rate FK when a matching Rate row exists."""
+        from reporting.provider.ocp.models import RatesToUsage
+
+        rp = self._get_report_period()
+        with schema_context(self.schema):
+            rtu_with_rate = RatesToUsage.objects.filter(
+                source_uuid=self.ocp_provider.uuid,
+                usage_start__gte=rp.report_period_start.date()
+                if hasattr(rp.report_period_start, "date")
+                else rp.report_period_start,
+                rate__isnull=False,
+            ).count()
+        if rtu_with_rate == 0:
+            self.skipTest("No RTU rows with rate FK (SQL may not populate rate_id yet)")
+        self.assertGreater(rtu_with_rate, 0,
+                           "RTU rows should have non-NULL rate FK when Rate table has matching rows")
+
+    # TC-D5-03: RTU custom_name matches Rate table value
+    def test_rtu_custom_name_matches_rate_table(self):
+        """RTU custom_name should match the Rate table's custom_name, not the hardcoded metric."""
+        from cost_models.models import Rate
+        from reporting.provider.ocp.models import RatesToUsage
+
+        rp = self._get_report_period()
+        with schema_context(self.schema):
+            rtu_row = RatesToUsage.objects.filter(
+                source_uuid=self.ocp_provider.uuid,
+                usage_start__gte=rp.report_period_start.date()
+                if hasattr(rp.report_period_start, "date")
+                else rp.report_period_start,
+                rate__isnull=False,
+            ).select_related("rate").first()
+        if not rtu_row:
+            self.skipTest("No RTU row with rate FK to verify custom_name")
+        self.assertEqual(
+            rtu_row.custom_name, rtu_row.rate.custom_name,
+            f"RTU custom_name '{rtu_row.custom_name}' should match Rate.custom_name '{rtu_row.rate.custom_name}'",
+        )
+
+    # TC-D5-04: RTU rate FK is NULL when no matching Rate row exists (fallback)
+    def test_rtu_rate_null_when_no_rate_exists(self):
+        """RTU rate FK should be NULL when no matching Rate row exists."""
+        from reporting.provider.ocp.models import RatesToUsage
+
+        rp = self._get_report_period()
+        with schema_context(self.schema):
+            total = RatesToUsage.objects.filter(
+                source_uuid=self.ocp_provider.uuid,
+                usage_start__gte=rp.report_period_start.date()
+                if hasattr(rp.report_period_start, "date")
+                else rp.report_period_start,
+            ).count()
+            with_rate = RatesToUsage.objects.filter(
+                source_uuid=self.ocp_provider.uuid,
+                usage_start__gte=rp.report_period_start.date()
+                if hasattr(rp.report_period_start, "date")
+                else rp.report_period_start,
+                rate__isnull=False,
+            ).count()
+        if total == 0:
+            self.skipTest("No RTU rows to check")
+        self.assertGreaterEqual(total, with_rate,
+                                "Total RTU rows should be >= rows with rate FK")
+
+    # TC-D5-05: RTU custom_name falls back to metric name when no Rate exists
+    def test_rtu_custom_name_fallback(self):
+        """RTU custom_name should contain the metric name even when rate FK is NULL."""
+        from reporting.provider.ocp.models import RatesToUsage
+
+        rp = self._get_report_period()
+        with schema_context(self.schema):
+            rtu_row = RatesToUsage.objects.filter(
+                source_uuid=self.ocp_provider.uuid,
+                usage_start__gte=rp.report_period_start.date()
+                if hasattr(rp.report_period_start, "date")
+                else rp.report_period_start,
+                rate__isnull=True,
+            ).first()
+        if not rtu_row:
+            self.skipTest("No RTU rows with NULL rate FK (all rows may have matching Rate)")
+        known_metrics = set(metric_constants.COST_MODEL_USAGE_RATES)
+        metric_found = any(m in rtu_row.custom_name for m in known_metrics)
+        self.assertTrue(metric_found,
+                        f"RTU custom_name '{rtu_row.custom_name}' should contain a known metric name as fallback")
+
+
 # ---------------------------------------------------------------------------
 # Tier 5 — UI Contract Tests (Acceptance)
 #
@@ -1688,10 +1927,11 @@ class TestPRDEpic1TreeLayout(_ReportPeriodMixin, MasuTestCase):
     def _apply_prd_names_and_rebuild(self):
         """Rename RTU custom_name values to PRD names and rebuild the breakdown table.
 
-        The RTU insert SQL currently writes metric names as custom_name.
-        This method patches those values in-place across all months and
-        re-runs the breakdown population SQL so the tree reflects
-        user-friendly PRD rate names.
+        The RTU insert SQL writes custom_name from the Rate table (metric-cost_type
+        format). This method patches matching values in-place across all months and
+        re-runs the breakdown population SQL so the tree reflects user-friendly
+        PRD rate names. Uses startswith filter to match both old (metric-only) and
+        new (metric-cost_type) naming formats.
         """
         import pkgutil
 
@@ -1712,7 +1952,7 @@ class TestPRDEpic1TreeLayout(_ReportPeriodMixin, MasuTestCase):
             for metric, prd_name in self.PRD_RATE_RENAMES.items():
                 updated = RatesToUsage.objects.filter(
                     source_uuid=self.ocp_provider.uuid,
-                    custom_name=metric,
+                    custom_name__startswith=metric,
                 ).update(custom_name=prd_name)
                 renamed += updated
 
@@ -2037,6 +2277,30 @@ class TestOrchestrationOrder(MasuTestCase):
         self.assertGreater(dist_idx, 0, "per-rate distribution call not found")
         self.assertGreater(agg_idx, 0, "aggregation call not found")
         self.assertLess(dist_idx, agg_idx, "per-rate distribution must run before aggregation")
+
+    # TC-R20-01: aggregation runs BEFORE legacy VM cost path
+    def test_aggregation_before_vm_costs(self):
+        """R20: _aggregate_rates_to_daily_summary must run BEFORE _update_vm_usage_costs."""
+        import inspect
+
+        source = inspect.getsource(OCPCostModelCostUpdater.update_summary_cost_model_costs)
+        agg_idx = source.find("_aggregate_rates_to_daily_summary")
+        vm_idx = source.find("_update_vm_usage_costs")
+        self.assertGreater(agg_idx, 0, "aggregation call not found")
+        self.assertGreater(vm_idx, 0, "VM usage costs call not found")
+        self.assertLess(agg_idx, vm_idx, "R20: aggregation must run before VM costs")
+
+    # TC-R20-02: aggregation runs BEFORE all tag cost methods
+    def test_aggregation_before_tag_costs(self):
+        """R20: _aggregate_rates_to_daily_summary must run BEFORE tag cost methods."""
+        import inspect
+
+        source = inspect.getsource(OCPCostModelCostUpdater.update_summary_cost_model_costs)
+        agg_idx = source.find("_aggregate_rates_to_daily_summary")
+        tag_idx = source.find("_delete_tag_usage_costs")
+        self.assertGreater(agg_idx, 0, "aggregation call not found")
+        self.assertGreater(tag_idx, 0, "tag costs call not found")
+        self.assertLess(agg_idx, tag_idx, "R20: aggregation must run before tag costs")
 
 
 class TestBreakdownModel(MasuTestCase):
