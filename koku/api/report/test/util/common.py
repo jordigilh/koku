@@ -10,6 +10,7 @@ from django_tenants.utils import schema_context
 from api.metrics import constants as metric_constants
 from api.report.test.util.constants import OCP_PLATFORM_NAMESPACE
 from cost_models.cost_model_manager import derive_metric_type
+from cost_models.cost_model_manager import generate_custom_name
 from cost_models.models import PriceList
 from cost_models.models import PriceListCostModelMap
 from cost_models.models import Rate
@@ -86,6 +87,7 @@ def sync_test_rate_rows(cost_model):
         cost_type = rate_data.get("cost_type", "")
         if not cost_type:
             cost_type = metrics_map.get(metric_name, {}).get("default_cost_type", "Supplementary")
+        rate_data["cost_type"] = cost_type
 
         tag_rates = rate_data.get("tag_rates") or {}
         tag_key = tag_rates.get("tag_key", "")
@@ -98,11 +100,7 @@ def sync_test_rate_rows(cost_model):
 
         custom_name = rate_data.get("custom_name", "")
         if not custom_name:
-            custom_name = metric_name
-            counter = 1
-            while custom_name in seen_names:
-                counter += 1
-                custom_name = f"{metric_name}_{counter}"
+            custom_name = generate_custom_name(rate_data, seen_names)
         seen_names.add(custom_name)
 
         rate_objects.append(
