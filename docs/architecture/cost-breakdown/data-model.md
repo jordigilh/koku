@@ -147,7 +147,7 @@ class RatesToUsage(models.Model):
     rate = models.ForeignKey("cost_models.Rate", on_delete=models.SET_NULL, null=True)
     cost_model = models.ForeignKey("cost_models.CostModel", on_delete=models.SET_NULL, null=True)
     report_period_id = models.IntegerField(null=True)      # FK to reporting_ocpusagereportperiod; used for cleanup scoping
-    source_uuid = models.TextField()
+    source_uuid = models.UUIDField()
     usage_start = models.DateField()
     usage_end = models.DateField()
     node = models.CharField(max_length=253, null=True)
@@ -284,7 +284,7 @@ class OCPCostUIBreakDownP(models.Model):
   `masu/processor/ocp/ocp_report_db_cleaner.py` — this is the same
   partition-based cleanup used for all partitioned OCP tables. Provider
   deletion and data expiration both work through partition cleanup, not
-  FK cascade, since `source_uuid` is a `TextField` (not a FK).
+  FK cascade, since `source_uuid` is a `UUIDField` (not a FK).
   This entry covers both SaaS and ONPREM modes since it is in the base
   `table_names` list (before the `if settings.ONPREM` branch).
   Do NOT also add to `get_self_hosted_table_names()` — that would
@@ -626,7 +626,7 @@ CREATE TABLE rates_to_usage (
     rate_id              UUID REFERENCES cost_model_rate(uuid) ON DELETE SET NULL,
     cost_model_id        UUID REFERENCES cost_model(uuid) ON DELETE SET NULL,
     report_period_id     INTEGER,
-    source_uuid          TEXT NOT NULL,
+    source_uuid          UUID NOT NULL,
     usage_start          DATE NOT NULL,
     usage_end            DATE NOT NULL,
     node                 VARCHAR(253),
