@@ -61,7 +61,7 @@ def update_cost_category(schema):
 def sync_test_rate_rows(cost_model):
     """Create PriceList, Rate, and PriceListCostModelMap rows from a CostModel's JSON rates.
 
-    Mirrors the dual-write performed by CostModelManager._sync_rate_table() but
+    Mirrors the dual-write performed by rate_sync.sync_rate_table() but
     operates directly from the JSON blob.  Used in test data loaders so that
     the Rate-table-backed CostModelDBAccessor.price_list property works in tests.
     """
