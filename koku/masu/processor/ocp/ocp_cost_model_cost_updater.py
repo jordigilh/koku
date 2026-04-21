@@ -647,6 +647,16 @@ class OCPCostModelCostUpdater(OCPCloudUpdaterBase, PartitionHandlerMixin):
         # Phase 2: DELETE stale RTU rows + INSERT per-rate usage costs into RatesToUsage
         self._update_usage_rates_to_usage(summary_range.start_date, summary_range.end_date)
 
+        # Phase 4: Per-rate distribution to RTU (runs BEFORE aggregation)
+        self._update_per_rate_distributed_cost(summary_range)
+
+        # Phase 2: Aggregate RTU rows → daily summary.
+        # R20 mitigation: runs BEFORE legacy VM/tag/monthly direct-write paths so
+        # the DELETE scope (cost_model_rate_type IN ('Infrastructure','Supplementary')
+        # AND monthly_cost_type IS NULL) only removes stale rows from the previous
+        # cycle. Legacy paths write their rows AFTER this step and are unaffected.
+        self._aggregate_rates_to_daily_summary(summary_range.start_date, summary_range.end_date)
+
         self._update_vm_usage_costs(summary_range.start_date, summary_range.end_date)
         self._update_markup_cost(summary_range.start_date, summary_range.end_date)
         self._update_monthly_cost(summary_range.start_date, summary_range.end_date)
@@ -669,11 +679,5 @@ class OCPCostModelCostUpdater(OCPCloudUpdaterBase, PartitionHandlerMixin):
                 )
         if not (self._tag_infra_rates or self._tag_supplementary_rates):
             self._delete_tag_usage_costs(summary_range.start_date, summary_range.end_date, self._provider.uuid)
-
-        # Phase 4: Per-rate distribution to RTU (runs BEFORE aggregation)
-        self._update_per_rate_distributed_cost(summary_range)
-
-        # Phase 2: Aggregate RTU rows → daily summary (runs AFTER per-rate distribution)
-        self._aggregate_rates_to_daily_summary(summary_range.start_date, summary_range.end_date)
 
         self.distribute_costs_and_update_ui_summary(summary_range)

@@ -31,8 +31,8 @@ design documents link here for details.
 | R17 | Markup ORM overhead | **MITIGATED** | 2 | ORM-first + SQL fallback if >30s. |
 | R18 | Distribution SQL rewrite regression | Active | 4 | Old files preserved for rollback; existing integration tests sufficient per tech lead. |
 | R19 | Aggregation handling of `distributed_cost` | **RESOLVED** | 4 | Aggregation sums both `calculated_cost` and `distributed_cost` (Option A). |
-| R20 | Aggregation DELETE scope too broad for Phase 2 partial deployment | Active | 2 | TL decision required: narrow DELETE, pull forward VM costs, or defer aggregation. |
-| R21 | Transitional VM cost handling during Phase 2 → Phase 3 gap | Active | 2-3 | Resolves once R20 is decided. |
+| R20 | Aggregation DELETE scope too broad for Phase 2 partial deployment | **MITIGATED** | 2 | Reorder orchestration: aggregation runs before legacy VM/tag direct-write paths (Option D). |
+| R21 | Transitional VM cost handling during Phase 2 → Phase 3 gap | **MITIGATED** | 2-3 | Resolved by R20 Option D + existing `_update_vm_usage_costs()` split from `_update_usage_costs()`. |
 
 ---
 
@@ -275,15 +275,15 @@ R16                    ██ (GROUP BY granularity)
 R17                    ██         ██ (markup ORM)
 R18                                         ██ (distribution regression)
 R19                                         ✓ (resolved — aggregation sums both columns)
-R20                    ██ (aggregation DELETE scope)
-R21                    ██         ██ (VM cost transitional handling)
+R20                    ✓ (mitigated — orchestration reorder)
+R21                    ✓          ✓ (mitigated — VM split + orchestration reorder)
 ```
 
 ---
 
 ## R20 — Aggregation DELETE Scope Too Broad for Phase 2 Partial Deployment
 
-**Status**: Active (Phase 2) — TL decision required
+**Status**: **MITIGATED** (Phase 2) — Option D adopted
 
 ### Problem
 
@@ -294,71 +294,115 @@ The subsequent INSERT only re-creates rows from `rates_to_usage` for
 `metric_type IN ('cpu', 'memory', 'storage')`.
 
 During the Phase 2 → Phase 3 gap, non-usage cost paths (VM costs,
-monthly costs, tag costs) are still written directly to the daily
-summary by legacy SQL files (`hourly_cost_virtual_machine.sql`,
-`monthly_cost.sql`, tag-based SQL). These direct-written rows carry
-`cost_model_rate_type IN ('Infrastructure', 'Supplementary')` and
-`monthly_cost_type IS NULL`, matching the DELETE scope.
+tag costs) are still written directly to the daily summary by legacy
+SQL files. These direct-written rows match the DELETE scope. If
+aggregation ran **after** the legacy paths, it would delete their rows
+without re-creating them — causing silent data loss.
 
-**Result**: The aggregation DELETE removes VM cost rows that were
-direct-written by the legacy path, but the aggregation INSERT does
-not re-create them (since VM metrics are not yet in `rates_to_usage`).
-VM costs silently vanish from the daily summary until Phase 3 migrates
-all remaining cost paths into `rates_to_usage`.
-
-### Design documentation gap
-
-- `phased-delivery.md` assigns aggregation as a Phase 2 artifact.
-- `sql-pipeline.md` assigns VM, monthly, and tag SQL migration to Phase 3.
-- Neither document addresses what happens to legacy direct-written
-  rows during the Phase 2 → Phase 3 transitional window.
-
-### Options
+### Decision: Option D — Reorder orchestration
 
 | # | Approach | Pros | Cons | Verdict |
 |---|----------|------|------|---------|
-| A | **Narrow the DELETE scope** to only remove rows with `metric_type IN ('cpu', 'memory', 'storage')` | Minimal change; legacy paths unaffected. | Requires adding `metric_type` column to daily summary or filtering by a derived condition. May not be feasible without schema change. | Viable — needs investigation |
-| B | **Pull forward VM/monthly/tag costs into RTU in Phase 2** | Eliminates the gap entirely. DELETE scope is correct as-is. | Increases Phase 2 scope significantly. Contradicts phased delivery plan. | Viable but scope increase |
-| C | **Defer aggregation to Phase 3** when all cost paths are migrated | Zero risk of data loss. Phase 2 uses dual-write (RTU INSERT + legacy direct-write). | Phase 2 delivers no user-visible change beyond RTU data population. Validation still possible via CI queries on RTU. | Viable — conservative |
-| D | **Execute legacy SQL after aggregation** to restore deleted rows | No schema change needed. Legacy paths run after aggregation re-writes their rows. | Order-of-operations coupling; fragile if orchestration changes. VM costs may briefly vanish within a single processing cycle. | Fragile |
+| A | **Narrow the DELETE scope** | Minimal change. | Requires `metric_type` column on daily summary (schema change). | **Rejected** |
+| B | **Pull forward VM/tag costs into RTU in Phase 2** | Eliminates the gap entirely. | Increases Phase 2 scope significantly. | **Rejected** |
+| C | **Defer aggregation to Phase 3** | Zero risk. | Creates a dual-path (RTU + legacy direct-write) — rejected by TL in [PR #5948](https://github.com/project-koku/koku/pull/5948). | **Rejected** |
+| D | **Aggregation runs before legacy direct-write paths** | No schema change. No scope increase. No dual-path. Legacy paths write after the DELETE and are unaffected. | Orchestration ordering is a constraint. | **Selected** |
 
-**Recommendation**: Option A or C. Option A preserves Phase 2
-user-visible delivery. Option C is the safest path if Phase 3 is
-imminent.
+### Why Option D
+
+1. **TL rejected dual-path architectures** — In [PR #5948 review](https://github.com/project-koku/koku/pull/5948),
+   @myersCody wrote: _"My concern with removing the aggregation step is
+   that we will be creating a dual path approach"_ — listing maintenance
+   burden, silent divergence, and testing complexity as reasons. Option C
+   would reintroduce exactly these problems.
+
+2. **TL accepts orchestration ordering as an architectural pattern** — In
+   the same review, @myersCody wrote: _"sequencing has always been
+   important even with the current implementation. We can't distribute
+   gpu costs without monthly_cost_gpu.sql running first."_ This confirms
+   that call ordering is an expected and accepted constraint.
+
+3. **No schema change required** — Option A would require adding a
+   `metric_type` column to the daily summary table. Option D avoids
+   this entirely.
+
+4. **Phase 2 scope preserved** — Option B would pull VM, monthly, and
+   tag cost migration forward from Phase 3, contradicting the phased
+   delivery plan. Option D keeps Phase 2 focused on usage costs.
+
+### Implementation
+
+In `masu/processor/ocp/ocp_cost_model_cost_updater.py` →
+`update_summary_cost_model_costs()`, the aggregation call was moved to
+run immediately after the RTU INSERT, before the legacy direct-write
+paths:
+
+```
+Phase 2 orchestration order (after fix):
+  1. _update_usage_rates_to_usage()        ← RTU INSERT (usage costs)
+  2. _update_per_rate_distributed_cost()   ← Phase 4 distribution on RTU
+  3. _aggregate_rates_to_daily_summary()   ← DELETE+INSERT (only usage in RTU)
+  4. _update_vm_usage_costs()              ← Legacy VM direct-write (survives)
+  5. _update_markup_cost()                 ← Markup ORM UPDATE
+  6. _update_monthly_cost()                ← Monthly costs (monthly_cost_type set, not affected by DELETE)
+  7. Tag cost methods                      ← Legacy tag direct-write (survives)
+  8. distribute_costs_and_update_ui_summary()
+```
+
+The aggregation DELETE (step 3) only removes stale cost-model rows
+from the **previous** processing cycle. Legacy VM (step 4) and tag
+(step 7) paths write their rows **after** the DELETE, so they are
+never affected.
+
+### Transitional → end-state
+
+When Phase 3 migrates VM, monthly, and tag costs into RTU, steps 4–7
+will be replaced by additional RTU INSERTs (before step 3). The
+aggregation then naturally picks up all cost types from RTU with no
+further reordering needed — converging to the target order documented
+in `sql-pipeline.md § Insertion Point in Orchestration Code`.
 
 ---
 
 ## R21 — Transitional VM Cost Handling During Phase 2 → Phase 3 Gap
 
-**Status**: Active (Phase 2-3) — resolves when R20 is decided
+**Status**: **MITIGATED** (Phase 2-3) — resolved by R20 Option D
 
 ### Problem
 
-`phased-delivery.md` instructs Phase 2 to "Replace
-`self._update_usage_costs()`". However, `_update_usage_costs()`
-handles both usage costs (CPU, memory, storage) and VM costs
-(`hourly_cost_virtual_machine.sql`). Phase 2 migrates only usage
-costs to `rates_to_usage`; VM costs are assigned to Phase 3
-(`sql-pipeline.md` step 4a).
-
-The documentation does not specify how VM costs are handled during
-the transitional period:
-- If `_update_usage_costs()` is fully removed, VM costs are lost.
-- If `_update_usage_costs()` is kept, the "no dual-path" Phase 2
-  requirement is violated (usage costs written to both RTU and
-  daily summary).
+On `main`, `_update_usage_costs()` handled both usage costs
+(`populate_usage_costs()`) and VM costs (`populate_vm_usage_costs()`)
+in a single method. Phase 2 replaces usage costs with the RTU pipeline
+but VM costs are assigned to Phase 3 (`sql-pipeline.md` step 4a). The
+design did not specify the transitional handling.
 
 ### Resolution
 
-This risk resolves mechanically once R20 is decided:
-- **R20 Option A** (narrow DELETE) → keep `_update_usage_costs()` for
-  VM path only, remove usage cost portion.
-- **R20 Option B** (pull forward) → VM costs move to RTU in Phase 2;
-  `_update_usage_costs()` fully removed.
-- **R20 Option C** (defer aggregation) → `_update_usage_costs()` stays
-  as-is in Phase 2; RTU is populated but not aggregated until Phase 3.
-- **R20 Option D** (reorder) → VM SQL runs after aggregation restores
-  the rows.
+Phase 2 already correctly split `_update_usage_costs()` into two
+independent paths:
+
+1. **RTU pipeline** (`_update_usage_rates_to_usage()`) — replaces
+   `populate_usage_costs()` for cpu/memory/storage. New Phase 2 code.
+2. **`_update_vm_usage_costs()`** — keeps `populate_vm_usage_costs()`
+   as a standalone method. Runs after aggregation per R20 Option D.
+
+**Code reference** — On `main` (before Phase 2), `_update_usage_costs()`
+contained both calls sequentially:
+```python
+# main branch: masu/processor/ocp/ocp_cost_model_cost_updater.py, _update_usage_costs()
+report_accessor.populate_usage_costs(...)    # cpu/memory/storage
+report_accessor.populate_vm_usage_costs(...) # VM costs
+```
+
+Phase 2 removes `_update_usage_costs()` entirely and replaces it with:
+- `_update_usage_rates_to_usage()` + `_aggregate_rates_to_daily_summary()`
+  for cpu/memory/storage (via RTU)
+- `_update_vm_usage_costs()` for VM costs (legacy direct-write, survives
+  the aggregation DELETE because it runs after it per R20 Option D)
+
+Phase 3 will migrate `_update_vm_usage_costs()` to write to RTU
+(step 4a in `sql-pipeline.md`), at which point the method is removed
+and the aggregation picks up VM costs from RTU naturally.
 
 ---
 
@@ -368,4 +412,4 @@ This risk resolves mechanically once R20 is decided:
 |---------|------|---------|
 | v1.0 | 2026-03-19 | Initial: extracted from phased-delivery.md, data-model.md, sql-pipeline.md. Full risk register (R1-R19), decision rationales (R2/R3, R6, R11, R13, R17), Phase 2 benchmarks, R18 regression test approach, R19 aggregation question. |
 | v1.1 | 2026-03-23 | **R19 RESOLVED (Option A)**: aggregation sums both `calculated_cost` and `distributed_cost`. R18: acceptance criteria confirmed — existing integration tests sufficient per tech lead. |
-| v1.2 | 2026-04-16 | **R20 NEW**: Aggregation DELETE scope too broad for Phase 2 partial deployment — removes legacy VM/monthly/tag cost rows that are not re-created by the aggregation INSERT. **R21 NEW**: Transitional VM cost handling is unspecified between Phase 2 and Phase 3; resolves once R20 strategy is decided. |
+| v1.2 | 2026-04-16 | **R20 NEW → MITIGATED (Option D)**: Aggregation DELETE scope too broad for Phase 2 partial deployment. Fixed by reordering orchestration so aggregation runs before legacy VM/tag direct-write paths. Justified by TL's rejection of dual-path architectures ([PR #5948](https://github.com/project-koku/koku/pull/5948)) and acceptance of orchestration ordering as a constraint. **R21 NEW → MITIGATED**: Transitional VM cost handling resolved by the existing `_update_usage_costs()` → `_update_vm_usage_costs()` split plus R20 Option D ordering. |
